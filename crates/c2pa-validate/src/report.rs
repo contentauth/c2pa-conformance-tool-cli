@@ -98,7 +98,7 @@ pub struct InputDescriptor {
     pub detected_format: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InputType {
     Asset,
@@ -249,4 +249,160 @@ fn html_escape(value: &str) -> String {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_summary(
+        total: usize,
+        trusted: usize,
+        valid: usize,
+        invalid: usize,
+        errors: usize,
+    ) -> Summary {
+        Summary {
+            total,
+            trusted,
+            valid,
+            invalid,
+            errors,
+            warnings: 0,
+        }
+    }
+
+    fn sample_input_descriptor(path: &str, input_type: InputType) -> InputDescriptor {
+        InputDescriptor {
+            original: path.to_string(),
+            resolved_path: path.to_string(),
+            input_type,
+            detected_format: "image/jpeg".to_string(),
+        }
+    }
+
+    #[test]
+    fn exit_code_failure_when_invalid_or_errors() {
+        let report = CrJsonReport {
+            schema: "crjson",
+            schema_version: "0.1.0",
+            tool: ToolMetadata {
+                name: "test",
+                version: "0.0.0",
+                c2pa_sdk: SdkMetadata {
+                    name: "c2pa",
+                    version: "0.0.0",
+                    source: "test",
+                },
+            },
+            generated_at: "0".to_string(),
+            summary: sample_summary(1, 0, 0, 1, 0),
+            results: vec![],
+        };
+        assert_eq!(report.exit_code(), ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn exit_code_failure_when_errors() {
+        let report = CrJsonReport {
+            schema: "crjson",
+            schema_version: "0.1.0",
+            tool: ToolMetadata {
+                name: "test",
+                version: "0.0.0",
+                c2pa_sdk: SdkMetadata {
+                    name: "c2pa",
+                    version: "0.0.0",
+                    source: "test",
+                },
+            },
+            generated_at: "0".to_string(),
+            summary: sample_summary(1, 0, 0, 0, 1),
+            results: vec![],
+        };
+        assert_eq!(report.exit_code(), ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn exit_code_success_when_trusted_or_valid_only() {
+        let report = CrJsonReport {
+            schema: "crjson",
+            schema_version: "0.1.0",
+            tool: ToolMetadata {
+                name: "test",
+                version: "0.0.0",
+                c2pa_sdk: SdkMetadata {
+                    name: "c2pa",
+                    version: "0.0.0",
+                    source: "test",
+                },
+            },
+            generated_at: "0".to_string(),
+            summary: sample_summary(1, 1, 0, 0, 0),
+            results: vec![],
+        };
+        assert_eq!(report.exit_code(), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn render_markdown_includes_summary_and_section() {
+        let report = CrJsonReport {
+            schema: "crjson",
+            schema_version: "0.1.0",
+            tool: ToolMetadata {
+                name: "test",
+                version: "0.0.0",
+                c2pa_sdk: SdkMetadata {
+                    name: "c2pa",
+                    version: "0.0.0",
+                    source: "test",
+                },
+            },
+            generated_at: "0".to_string(),
+            summary: sample_summary(2, 1, 1, 0, 0),
+            results: vec![ReportItem::CrJsonValidation(CrJsonValidationReport {
+                input: sample_input_descriptor("/path/to/file.json", InputType::CrJson),
+                valid: true,
+                messages: vec!["ok".to_string()],
+            })],
+        };
+        let md = report.render_markdown();
+        assert!(md.starts_with("# C2PA Conformance Report"));
+        assert!(md.contains("- Total: 2"));
+        assert!(md.contains("- Trusted: 1"));
+        assert!(md.contains("## `/path/to/file.json`"));
+        assert!(md.contains("crJSON validation: `pass`"));
+    }
+
+    #[test]
+    fn render_html_includes_doctype_and_escapes_content() {
+        let report = CrJsonReport {
+            schema: "crjson",
+            schema_version: "0.1.0",
+            tool: ToolMetadata {
+                name: "test",
+                version: "0.0.0",
+                c2pa_sdk: SdkMetadata {
+                    name: "c2pa",
+                    version: "0.0.0",
+                    source: "test",
+                },
+            },
+            generated_at: "0".to_string(),
+            summary: sample_summary(0, 0, 0, 0, 0),
+            results: vec![ReportItem::CrJsonValidation(CrJsonValidationReport {
+                input: sample_input_descriptor("/path/to/file&name.json", InputType::CrJson),
+                valid: false,
+                messages: vec![],
+            })],
+        };
+        let html = report.render_html();
+        assert!(html.contains("<!doctype html>"));
+        assert!(html.contains("<h1>C2PA Conformance Report</h1>"));
+        assert!(
+            html.contains("file&amp;name.json"),
+            "ampersand should be escaped"
+        );
+        assert!(html.contains("crJSON validation: fail"));
+    }
 }
