@@ -1,3 +1,15 @@
+/*
+Copyright 2026 Adobe. All rights reserved.
+This file is licensed to you under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain a copy
+of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under
+the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR REPRESENTATIONS
+OF ANY KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.
+*/
+
 use std::process::ExitCode;
 
 use c2pa::validation_results::ValidationState;
@@ -35,7 +47,6 @@ pub struct Summary {
     pub invalid: usize,
     pub errors: usize,
     pub warnings: usize,
-    pub profile_failures: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +77,6 @@ pub struct AssetReport {
     pub assertion_labels: Vec<String>,
     pub statuses: Vec<StatusRecord>,
     pub manifests: Vec<ManifestRecord>,
-    pub profile_results: Vec<ProfileReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reader_json: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -152,19 +162,9 @@ pub struct AssertionRecord {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProfileReport {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub passed: bool,
-    pub messages: Vec<String>,
-}
-
 impl CrJsonReport {
     pub fn exit_code(&self) -> ExitCode {
-        if self.summary.errors > 0 || self.summary.invalid > 0 || self.summary.profile_failures > 0
-        {
+        if self.summary.errors > 0 || self.summary.invalid > 0 {
             ExitCode::FAILURE
         } else {
             ExitCode::SUCCESS
@@ -175,13 +175,12 @@ impl CrJsonReport {
         let mut output = String::new();
         output.push_str("# C2PA Conformance Report\n\n");
         output.push_str(&format!(
-            "- Total: {}\n- Trusted: {}\n- Valid: {}\n- Invalid: {}\n- Errors: {}\n- Profile failures: {}\n\n",
+            "- Total: {}\n- Trusted: {}\n- Valid: {}\n- Invalid: {}\n- Errors: {}\n\n",
             self.summary.total,
             self.summary.trusted,
             self.summary.valid,
             self.summary.invalid,
-            self.summary.errors,
-            self.summary.profile_failures
+            self.summary.errors
         ));
 
         for result in &self.results {
