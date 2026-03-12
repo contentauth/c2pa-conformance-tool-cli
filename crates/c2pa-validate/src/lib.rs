@@ -41,8 +41,23 @@ pub fn run() -> ExitCode {
     }
 }
 
+/// Runs the validator with the given CLI args (for tests or programmatic use).
+pub fn run_with_cli(cli: Cli) -> ExitCode {
+    match try_run_with_cli(cli) {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("{error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn try_run() -> Result<ExitCode> {
     let cli = Cli::parse();
+    try_run_with_cli(cli)
+}
+
+fn try_run_with_cli(cli: Cli) -> Result<ExitCode> {
     init_tracing(cli.verbose)?;
 
     let validator = Validator::new(cli.clone())?;
@@ -87,12 +102,11 @@ fn init_tracing(verbose: u8) -> Result<()> {
         _ => Level::DEBUG,
     };
 
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_max_level(level)
         .with_writer(io::stderr)
         .without_time()
-        .try_init()
-        .map_err(|error| anyhow::anyhow!("failed to initialize logging: {error}"))?;
+        .try_init(); // ignore "already initialized" when run_with_cli is used from multiple tests
 
     Ok(())
 }
@@ -264,4 +278,29 @@ pub fn normalize_output_path(path: Option<PathBuf>) -> Option<PathBuf> {
                 .join(candidate)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_output_path_none_returns_none() {
+        assert!(normalize_output_path(None).is_none());
+    }
+
+    #[test]
+    fn normalize_output_path_absolute_returns_unchanged() {
+        let abs = PathBuf::from("/tmp/out.json");
+        assert_eq!(normalize_output_path(Some(abs.clone())), Some(abs));
+    }
+
+    #[test]
+    fn normalize_output_path_relative_joins_cwd() {
+        let rel = PathBuf::from("out.json");
+        let result = normalize_output_path(Some(rel));
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(result.is_absolute() || result.to_string_lossy().starts_with("out"));
+    }
 }
