@@ -1,4 +1,16 @@
-use std::{fmt, path::PathBuf, str::FromStr};
+/*
+Copyright 2026 Adobe. All rights reserved.
+This file is licensed to you under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain a copy
+of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under
+the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR REPRESENTATIONS
+OF ANY KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.
+*/
+
+use std::{fmt, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
 
@@ -20,46 +32,28 @@ pub struct Cli {
         short,
         long,
         value_name = "FILE_OR_DIR",
-        help = "Output file path, or directory (auto-named from source file, e.g. photo.jpg → photo.json)"
+        help = "Output file or directory. If omitted, writes next to each source (e.g. photo.jpg → photo.json in same dir)"
     )]
     pub output: Option<PathBuf>,
 
     #[arg(short = 'f', long = "format", value_enum, default_value_t = OutputFormat::Json)]
     pub format: OutputFormat,
 
-    #[arg(long, value_enum, default_value_t = TrustMode::Auto)]
+    #[arg(
+        short = 't',
+        long,
+        value_enum,
+        default_value_t = TrustMode::Default,
+        help = "Trust list mode: default (official C2PA list only), itl (official then ITL), or custom (requires --trust-list)"
+    )]
     pub trust_mode: TrustMode,
-
-    #[arg(long, value_name = "FILE_OR_URL")]
-    pub official_trust_list: Option<String>,
-
-    #[arg(long, value_name = "FILE_OR_URL")]
-    pub itl_trust_list: Option<String>,
-
-    #[arg(long, value_name = "FILE_OR_URL")]
-    pub trust_anchors: Option<String>,
-
-    #[arg(long, value_name = "FILE_OR_URL")]
-    pub allowed_list: Option<String>,
-
-    #[arg(long, value_name = "FILE_OR_URL")]
-    pub trust_config: Option<String>,
-
-    #[arg(long, value_name = "FILE_OR_URL")]
-    pub test_cert: Vec<String>,
 
     #[arg(
         long,
-        value_name = "FILE",
-        help = "Asset file to validate against when INPUT is a standalone .c2pa manifest"
+        value_name = "FILE_OR_URL",
+        help = "Path or URL to a trust list (PEM). Required when --trust-mode is custom. Use --settings for advanced trust config."
     )]
-    pub asset: Option<PathBuf>,
-
-    #[arg(long, value_name = "PROFILE")]
-    pub profile: Vec<String>,
-
-    #[arg(long = "profile-file", value_name = "FILE")]
-    pub profile_files: Vec<PathBuf>,
+    pub trust_list: Option<String>,
 
     #[arg(
         long,
@@ -68,10 +62,7 @@ pub struct Cli {
     )]
     pub settings: Option<PathBuf>,
 
-    #[arg(
-        long,
-        help = "Fail on warnings/profile failures, not only invalid assets"
-    )]
+    #[arg(long, help = "Fail on warnings, not only invalid assets")]
     pub strict: bool,
 
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -87,54 +78,21 @@ pub enum OutputFormat {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
 pub enum TrustMode {
-    Auto,
-    Official,
+    /// Official C2PA trust list only
+    Default,
+    /// Official list first, then ITL list
     Itl,
+    /// Custom trust list (requires --trust-list)
     Custom,
-    None,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BuiltInProfile {
-    Basic,
-    Trusted,
-    IngredientAware,
-}
-
-impl fmt::Display for BuiltInProfile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = match self {
-            Self::Basic => "basic",
-            Self::Trusted => "trusted",
-            Self::IngredientAware => "ingredient-aware",
-        };
-        f.write_str(value)
-    }
 }
 
 impl fmt::Display for TrustMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
-            Self::Auto => "auto",
-            Self::Official => "official",
+            Self::Default => "default",
             Self::Itl => "itl",
             Self::Custom => "custom",
-            Self::None => "none",
         };
         f.write_str(value)
-    }
-}
-
-impl FromStr for BuiltInProfile {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "basic" => Ok(Self::Basic),
-            "trusted" => Ok(Self::Trusted),
-            "ingredient-aware" => Ok(Self::IngredientAware),
-            other => Err(format!("unknown profile '{other}'")),
-        }
     }
 }

@@ -1,11 +1,21 @@
+/*
+Copyright 2026 Adobe. All rights reserved.
+This file is licensed to you under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain a copy
+of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under
+the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR REPRESENTATIONS
+OF ANY KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.
+*/
+
 pub mod cli;
-pub mod profiles;
 pub mod report;
 pub mod validator;
 
 use std::{
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -46,25 +56,25 @@ fn try_run() -> Result<ExitCode> {
     let multiple_assets_json = cli.format == OutputFormat::Json && asset_count > 1;
 
     if multiple_assets_json {
-        let output = cli.output.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("With multiple inputs and JSON format, specify -o <directory> to write one file per input.")
-        })?;
-        let out_dir = resolve_output_dir(output)?;
-        write_crjson_per_asset(&report, &out_dir)?;
+        let out_dir = cli
+            .output
+            .as_ref()
+            .map(|p| resolve_output_dir(p))
+            .transpose()?;
+        write_crjson_per_asset(&report, out_dir.as_deref())?;
     } else {
         let rendered = render_report(&report, cli.format)?;
-        if let Some(output) = cli.output.as_ref() {
-            let path = resolve_output_path(output, cli.format, &report)?;
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).with_context(|| {
-                    format!("failed to create output directory {}", parent.display())
-                })?;
-            }
-            fs::write(&path, rendered)
-                .with_context(|| format!("failed to write output to {}", path.display()))?;
-        } else {
-            write_output(cli.format, &rendered)?;
+        let path = match cli.output.as_ref() {
+            Some(output) => resolve_output_path(output, cli.format, &report)?,
+            None => default_output_path(cli.format, &report)?,
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create output directory {}", parent.display())
+            })?;
         }
+        fs::write(&path, rendered)
+            .with_context(|| format!("failed to write output to {}", path.display()))?;
     }
 
     Ok(report.exit_code())
@@ -134,26 +144,44 @@ fn resolve_output_dir(output: &Path) -> Result<PathBuf> {
     Ok(output.to_path_buf())
 }
 
-/// Write one .json file per asset into out_dir, named from each input's stem (duplicate stems get _2, _3, ...).
-fn write_crjson_per_asset(report: &CrJsonReport, out_dir: &Path) -> Result<()> {
+/// Write one .json file per asset. When `out_dir` is Some, all files go there (stems get _2, _3 on collision).
+/// When None, each file is written next to its source in the same directory.
+fn write_crjson_per_asset(report: &CrJsonReport, out_dir: Option<&Path>) -> Result<()> {
     let mut stem_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
     for r in &report.results {
         if let ReportItem::Asset(asset) = r {
             let Some(ref crjson) = asset.reader_json else {
                 continue;
             };
-            let stem = Path::new(&asset.input.resolved_path)
+            let resolved = Path::new(&asset.input.resolved_path);
+            let stem = resolved
                 .file_stem()
                 .and_then(|s| s.to_os_string().into_string().ok())
                 .unwrap_or_else(|| "report".to_string());
-            let count = stem_counts.entry(stem.clone()).or_insert(0);
+            let (dir, count_key) = match out_dir {
+                Some(d) => (d.to_path_buf(), stem.clone()),
+                None => (
+                    resolved
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(PathBuf::new),
+                    format!(
+                        "{}::{}",
+                        resolved.parent().unwrap_or(Path::new(".")).display(),
+                        stem
+                    ),
+                ),
+            };
+            let count = stem_counts.entry(count_key).or_insert(0);
             *count += 1;
             let filename = if *count == 1 {
                 format!("{stem}.json")
             } else {
                 format!("{stem}_{}.json", count)
             };
-            let path = out_dir.join(&filename);
+            let path = dir.join(&filename);
+            fs::create_dir_all(&dir)
+                .with_context(|| format!("failed to create output dir {}", dir.display()))?;
             let rendered =
                 serde_json::to_string_pretty(crjson).context("failed to render crJSON")?;
             fs::write(&path, rendered)
@@ -169,6 +197,25 @@ fn format_extension(format: OutputFormat) -> &'static str {
         OutputFormat::Markdown => "md",
         OutputFormat::Html => "html",
     }
+}
+
+/// When -o is not given, default to the same directory as the (first) source file, with stem + format extension.
+fn default_output_path(format: OutputFormat, report: &CrJsonReport) -> Result<PathBuf> {
+    let ext = format_extension(format);
+    let (parent, base) = report
+        .results
+        .first()
+        .map(|r| {
+            let p = Path::new(r.input_path());
+            let parent = p.parent().unwrap_or(Path::new(".")).to_path_buf();
+            let base = p
+                .file_stem()
+                .and_then(|s| s.to_os_string().into_string().ok())
+                .unwrap_or_else(|| "report".to_string());
+            (parent, base)
+        })
+        .unwrap_or_else(|| (PathBuf::from("."), "report".to_string()));
+    Ok(parent.join(format!("{base}.{ext}")))
 }
 
 /// Treats -o as a directory when it is an existing directory or has no format extension.
@@ -205,25 +252,6 @@ fn resolve_output_path(
     } else {
         Ok(output.to_path_buf())
     }
-}
-
-fn write_output(format: OutputFormat, rendered: &str) -> Result<()> {
-    match format {
-        OutputFormat::Json => {
-            println!("{rendered}");
-        }
-        OutputFormat::Markdown | OutputFormat::Html => {
-            let mut stderr = io::stderr().lock();
-            stderr
-                .write_all(rendered.as_bytes())
-                .context("failed to write report to stderr")?;
-            if !rendered.ends_with('\n') {
-                stderr.write_all(b"\n").context("failed to flush newline")?;
-            }
-        }
-    }
-
-    Ok(())
 }
 
 pub fn normalize_output_path(path: Option<PathBuf>) -> Option<PathBuf> {

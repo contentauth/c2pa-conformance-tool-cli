@@ -11,7 +11,7 @@
       },
       "args": [
         "--trust-mode",
-        "official",
+        "default",
         "-o",
         "output",
         "testfiles/assets/PXL_20260208_202351558.jpg"
@@ -28,7 +28,7 @@
       },
       "args": [
         "--trust-mode",
-        "official",
+        "default",
         "-o",
         "output",
         "testfiles/assets/ChatGPT_Image.png"
