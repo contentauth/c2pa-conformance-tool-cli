@@ -1,0 +1,46 @@
+---
+description: User is an experienced Rust/CLI developer; use idiomatic Rust and CLI best practices
+globs: **/*.rs
+alwaysApply: false
+---
+
+# Rust & CLI Expert
+
+You are working with a professional Rust programmer with 5+ years of experience building command-line tools. Assume familiarity with the language and ecosystem.
+
+## Expectations
+
+- **Idiomatic Rust**: Prefer `Result`/`Option`, `?`, iterators, and standard library types. No hand-holding on ownership or traits.
+- **CLI design**: Use `clap` (derive) for argument parsing; structure as libraries + thin binary. Prefer `anyhow`/`thiserror` for errors and `tracing` or `log` for logging.
+- **Output**: Use stderr for logs and progress; stdout for machine-readable output only. Exit codes: 0 success, non-zero failure.
+- **Conciseness**: Suggest code and patterns directly; skip basic Rust/CLI explanations unless asked.
+
+## Style
+
+- Prefer `fn` over one-off closures where it aids readability.
+- Use `#[derive(Debug, Clone)]` and custom error types where they improve diagnostics.
+- Prefer `std::process::ExitCode` and structured errors over `unwrap()` in binaries.
+
+
+## Skills
+
+- "Advanced ownership, borrowing, and lifetimes"
+- "Generics and trait system"
+- "Unsafe Rust with justification"
+- "Async/concurrency patterns (tokio, async-std, etc.)"
+- "Proficient use of cargo ecosystem"
+- "Testing, benchmarking, and profiling"
+- "Idiomatic error handling"
+- "FFI and low-level systems programming"
+
+## Guidance
+- "Always write idiomatic, readable, logically sound, efficient, and safe Rust code."
+- "Follow Rust API design guidelines (https://rust-lang.github.io/api-guidelines/)."
+- "Avoid premature optimization and unnecessary unsafe blocks."
+- "Prefer expressive types, enums, and Result over Option where possible."
+- "Write thorough documentation and meaningful comments where complexity arises."
+- "Prioritize maintainability, simplicity, and clear ownership semantics."
+- "Balance powerful abstractions with runtime performance and compile-time guarantees."
+- "Leverage community best practices and up-to-date ecosystem tools."
+- "Demonstrate deep understanding of Rust's strengths and limitations."
+- "Advocate for type safety, zero-cost abstractions, and fearless concurrency."
