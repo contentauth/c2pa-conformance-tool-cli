@@ -1,5 +1,18 @@
+/*
+Copyright 2026 Adobe. All rights reserved.
+This file is licensed to you under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License. You may obtain a copy
+of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under
+the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR REPRESENTATIONS
+OF ANY KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.
+*/
+
 use std::{
     fs,
+    io::Cursor,
     path::{Path, PathBuf},
 };
 
@@ -13,12 +26,11 @@ use serde_json::Value;
 use tracing::debug;
 
 use crate::{
-    cli::{BuiltInProfile, Cli, TrustMode},
-    profiles::{built_in_profile, load_profile_file, AssetProfile},
+    cli::{Cli, TrustMode},
     report::{
         AssertionRecord, AssetReport, CrJsonReport, CrJsonValidationReport, IngredientRecord,
-        InputDescriptor, InputType, ManifestRecord, ProfileReport, ReportItem, SdkMetadata,
-        SignatureRecord, StatusRecord, Summary, ToolMetadata, TrustAssessment,
+        InputDescriptor, InputType, ManifestRecord, ReportItem, SdkMetadata, SignatureRecord,
+        StatusRecord, Summary, ToolMetadata, TrustAssessment,
     },
 };
 
@@ -30,7 +42,6 @@ const DEFAULT_ITL_URL: &str =
 #[derive(Debug, Clone)]
 pub struct Validator {
     cli: Cli,
-    profiles: Vec<AssetProfile>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,8 +53,10 @@ struct TrustScenario {
 
 impl Validator {
     pub fn new(cli: Cli) -> Result<Self> {
-        let profiles = load_profiles(&cli)?;
-        Ok(Self { cli, profiles })
+        if cli.trust_mode == TrustMode::Custom && cli.trust_list.is_none() {
+            bail!("--trust-mode custom requires --trust-list FILE_OR_URL");
+        }
+        Ok(Self { cli })
     }
 
     pub fn run(&self) -> Result<CrJsonReport> {
@@ -69,11 +82,6 @@ impl Validator {
                         ValidationState::Invalid => summary.invalid += 1,
                     }
                     summary.warnings += asset.warnings.len();
-                    summary.profile_failures += asset
-                        .profile_results
-                        .iter()
-                        .filter(|profile| !profile.passed)
-                        .count();
                 }
                 ReportItem::CrJsonValidation(report) => {
                     summary.total += 1;
@@ -92,7 +100,7 @@ impl Validator {
                 .filter_map(|item| match item {
                     ReportItem::Asset(asset) => Some(
                         asset.validation_state == ValidationState::Valid
-                            && !asset.profile_results.iter().all(|profile| profile.passed),
+                            && !asset.warnings.is_empty(),
                     ),
                     ReportItem::CrJsonValidation(_) => None,
                 })
@@ -237,25 +245,24 @@ impl Validator {
     }
 
     fn read_sidecar(&self, path: &Path, context: C2paContext) -> Result<Reader> {
-        let asset_path = self.cli.asset.clone().ok_or_else(|| {
-            anyhow!("--asset is required when validating a standalone .c2pa manifest")
-        })?;
-        let asset_format = format_from_path(&asset_path)
-            .ok_or_else(|| anyhow!("unsupported asset type for {}", asset_path.display()))?;
         let c2pa_data =
             fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-        let stream = fs::File::open(&asset_path)
-            .with_context(|| format!("failed to open {}", asset_path.display()))?;
-
+        // Validate manifest only (signatures, structure); no asset to verify against.
+        let settings = context.settings().clone();
+        let settings = settings
+            .with_value("verify.verify_after_reading", false)
+            .context("failed to set verify_after_reading")?;
+        let context = context
+            .with_settings(settings)
+            .context("failed to apply settings")?;
+        let empty: Vec<u8> = Vec::new();
         Reader::from_context(context)
-            .with_manifest_data_and_stream(&c2pa_data, &asset_format, stream)
-            .with_context(|| {
-                format!(
-                    "failed to validate {} against asset {}",
-                    path.display(),
-                    asset_path.display()
-                )
-            })
+            .with_manifest_data_and_stream(
+                &c2pa_data,
+                "application/octet-stream",
+                Cursor::new(empty),
+            )
+            .with_context(|| format!("failed to read sidecar manifest {}", path.display()))
     }
 
     fn build_asset_report(
@@ -303,16 +310,9 @@ impl Validator {
             assertion_labels,
             statuses,
             manifests,
-            profile_results: Vec::new(),
             reader_json,
             warnings: Vec::new(),
         };
-
-        report.profile_results = self
-            .profiles
-            .iter()
-            .map(|profile| profile.evaluate(&report))
-            .collect::<Vec<ProfileReport>>();
 
         if validation_state != ValidationState::Trusted && scenario_label == "itl" {
             report
@@ -327,58 +327,16 @@ impl Validator {
     fn build_trust_scenarios(&self) -> Result<Vec<TrustScenario>> {
         let base = self.base_settings()?;
         let scenarios = match self.cli.trust_mode {
-            TrustMode::None => vec![TrustScenario {
-                label: "none".to_string(),
-                source: "validation_only".to_string(),
-                settings: base.clone().with_value("verify.verify_trust", false)?,
-            }],
-            TrustMode::Official => vec![self.with_trust_source(
+            TrustMode::Default => vec![self.with_trust_source(
                 &base,
                 "official",
-                self.cli
-                    .official_trust_list
-                    .clone()
-                    .unwrap_or_else(|| OFFICIAL_TRUST_LIST_URL.to_string()),
+                OFFICIAL_TRUST_LIST_URL.to_string(),
             )?],
-            TrustMode::Itl => vec![self.with_trust_source(
-                &base,
-                "itl",
-                self.cli
-                    .itl_trust_list
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_ITL_URL.to_string()),
-            )?],
+            TrustMode::Itl => vec![
+                self.with_trust_source(&base, "official", OFFICIAL_TRUST_LIST_URL.to_string())?,
+                self.with_trust_source(&base, "itl", DEFAULT_ITL_URL.to_string())?,
+            ],
             TrustMode::Custom => vec![self.with_custom_trust(&base)?],
-            TrustMode::Auto => {
-                let mut items = vec![self.with_trust_source(
-                    &base,
-                    "official",
-                    self.cli
-                        .official_trust_list
-                        .clone()
-                        .unwrap_or_else(|| OFFICIAL_TRUST_LIST_URL.to_string()),
-                )?];
-
-                if self.cli.itl_trust_list.is_some() {
-                    items.push(self.with_trust_source(
-                        &base,
-                        "itl",
-                        self.cli.itl_trust_list.clone().unwrap_or_default(),
-                    )?);
-                }
-
-                if !self.cli.test_cert.is_empty() || self.cli.trust_anchors.is_some() {
-                    items.push(self.with_custom_trust(&base)?);
-                }
-
-                items.push(TrustScenario {
-                    label: "none".to_string(),
-                    source: "validation_only".to_string(),
-                    settings: base.with_value("verify.verify_trust", false)?,
-                });
-
-                items
-            }
         };
 
         Ok(scenarios)
@@ -395,34 +353,19 @@ impl Validator {
     }
 
     fn with_custom_trust(&self, base: &Settings) -> Result<TrustScenario> {
-        let mut settings = base.clone().with_value("verify.verify_trust", true)?;
-
-        if let Some(trust_anchors) = &self.cli.trust_anchors {
-            settings = settings.with_value("trust.trust_anchors", read_resource(trust_anchors)?)?;
-        }
-
-        if let Some(allowed_list) = &self.cli.allowed_list {
-            settings = settings.with_value("trust.allowed_list", read_resource(allowed_list)?)?;
-        }
-
-        if let Some(trust_config) = &self.cli.trust_config {
-            settings = settings.with_value("trust.trust_config", read_resource(trust_config)?)?;
-        }
-
-        if !self.cli.test_cert.is_empty() {
-            let bundle = self
-                .cli
-                .test_cert
-                .iter()
-                .map(|resource| read_resource(resource))
-                .collect::<Result<Vec<_>>>()?
-                .join("\n");
-            settings = settings.with_value("trust.user_anchors", bundle)?;
-        }
+        let path = self
+            .cli
+            .trust_list
+            .as_ref()
+            .expect("trust_list required when trust_mode is Custom");
+        let settings = base
+            .clone()
+            .with_value("verify.verify_trust", true)?
+            .with_value("trust.trust_anchors", read_resource(path)?)?;
 
         Ok(TrustScenario {
             label: "custom".to_string(),
-            source: "custom_or_test".to_string(),
+            source: "custom".to_string(),
             settings,
         })
     }
@@ -444,25 +387,6 @@ impl Validator {
             settings,
         })
     }
-}
-
-fn load_profiles(cli: &Cli) -> Result<Vec<AssetProfile>> {
-    let mut profiles = cli
-        .profile
-        .iter()
-        .map(|profile| {
-            profile
-                .parse::<BuiltInProfile>()
-                .map(built_in_profile)
-                .map_err(anyhow::Error::msg)
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    for path in &cli.profile_files {
-        profiles.push(load_profile_file(path)?);
-    }
-
-    Ok(profiles)
 }
 
 fn expand_inputs(inputs: &[String]) -> Result<Vec<PathBuf>> {
@@ -584,12 +508,8 @@ fn trust_classification(state: ValidationState) -> &'static str {
     }
 }
 
-fn trust_notes(cli: &Cli) -> Vec<String> {
-    let mut notes = Vec::new();
-    if !cli.test_cert.is_empty() {
-        notes.push("custom test certificates were provided for this process only".to_string());
-    }
-    notes
+fn trust_notes(_cli: &Cli) -> Vec<String> {
+    Vec::new()
 }
 
 fn read_resource(resource: &str) -> Result<String> {
