@@ -24,3 +24,6 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 c2pa = { path = "../../vendor/c2pa-rs/sdk", features = ["file_io", "pdf", "fetch_remote_manifests"] }
+
+[dev-dependencies]
+jsonschema = { workspace = true }
