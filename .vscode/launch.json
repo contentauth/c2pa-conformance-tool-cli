@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate PXL JPG (standard trust list)",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "--trust-mode",
+        "official",
+        "-o",
+        "output",
+        "testfiles/assets/PXL_20260208_202351558.jpg"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate ChatGPT Image (standard trust list)",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "--trust-mode",
+        "official",
+        "-o",
+        "output",
+        "testfiles/assets/ChatGPT_Image.png"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
