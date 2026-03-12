@@ -1,0 +1,26 @@
+[package]
+name = "c2pa-validate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI for C2PA conformance validation with structured crJSON reporting"
+
+[lib]
+name = "c2pa_validate"
+path = "src/lib.rs"
+
+[[bin]]
+name = "c2pa-validate"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+glob.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+c2pa = { path = "../../vendor/c2pa-rs/sdk", features = ["file_io", "pdf", "fetch_remote_manifests"] }
