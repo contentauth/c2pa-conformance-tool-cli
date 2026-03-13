@@ -217,7 +217,7 @@ fn write_structured_per_asset(
                     resolved
                         .parent()
                         .map(|p| p.to_path_buf())
-                        .unwrap_or_else(PathBuf::new),
+                        .unwrap_or_default(),
                     format!(
                         "{}::{}",
                         resolved.parent().unwrap_or(Path::new(".")).display(),

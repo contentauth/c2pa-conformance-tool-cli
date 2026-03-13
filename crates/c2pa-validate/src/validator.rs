@@ -200,11 +200,11 @@ impl Validator {
         let mut warnings = Vec::new();
 
         for scenario in scenarios {
-            match self.read_asset(path, input_type.clone(), &scenario.settings) {
+            match self.read_asset(path, input_type, &scenario.settings) {
                 Ok((reader, reader_json)) => {
                     let asset = self.build_asset_report(
                         path,
-                        input_type.clone(),
+                        input_type,
                         scenario.label,
                         scenario.source,
                         reader,
