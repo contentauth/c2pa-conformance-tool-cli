@@ -293,7 +293,7 @@ impl Validator {
         reader_json: Option<Value>,
     ) -> Result<AssetReport> {
         let validation_state = reader.validation_state();
-        let manifests = reader
+        let mut manifests = reader
             .iter_manifests()
             .map(manifest_record)
             .collect::<Result<Vec<_>>>()?;
@@ -311,7 +311,26 @@ impl Validator {
                     .map(|assertion| assertion.label().to_string())
             })
             .collect::<Vec<_>>();
-        let statuses = collect_statuses(&reader);
+        let mut statuses = collect_statuses(&reader);
+        if statuses.is_empty() {
+            if let Some(ref j) = reader_json {
+                statuses = statuses_from_crjson(j);
+            }
+        }
+
+        if let Some(ref j) = reader_json {
+            if let Some(manifests_json) = j.get("manifests").and_then(Value::as_array) {
+                for (i, m) in manifests_json.iter().enumerate() {
+                    if i < manifests.len() {
+                        manifests[i].statuses = statuses_from_manifest_validation_results(m);
+                        manifests[i].claim_version = claim_version_from_manifest_value(m);
+                        if let Some(gen) = claim_generator_from_manifest_value(m) {
+                            manifests[i].claim_generator = Some(gen);
+                        }
+                    }
+                }
+            }
+        }
 
         let mut report = AssetReport {
             input: input_descriptor(path, input_type)?,
@@ -504,11 +523,52 @@ fn collect_statuses(reader: &Reader) -> Vec<StatusRecord> {
         .collect()
 }
 
+/// Collect validation status records from crJSON document-level `validationInfo`.
+/// Replaces the deprecated per-manifest status/validationResults approach.
+fn statuses_from_crjson(value: &Value) -> Vec<StatusRecord> {
+    let mut out = Vec::new();
+    let vi = match value.get("validationInfo") {
+        Some(v) => v,
+        None => return out,
+    };
+    let kind = "success";
+    if let Some(sig) = vi.get("signature").and_then(Value::as_array) {
+        for code_value in sig {
+            if let Some(code) = code_value.as_str() {
+                out.push(StatusRecord {
+                    code: code.to_string(),
+                    url: None,
+                    explanation: None,
+                    kind: kind.to_string(),
+                });
+            }
+        }
+    }
+    if let Some(trust) = vi.get("trust").and_then(Value::as_str) {
+        out.push(StatusRecord {
+            code: trust.to_string(),
+            url: None,
+            explanation: None,
+            kind: kind.to_string(),
+        });
+    }
+    if let Some(content) = vi.get("content").and_then(Value::as_str) {
+        out.push(StatusRecord {
+            code: content.to_string(),
+            url: None,
+            explanation: None,
+            kind: kind.to_string(),
+        });
+    }
+    out
+}
+
 fn manifest_record(manifest: &Manifest) -> Result<ManifestRecord> {
     Ok(ManifestRecord {
         label: manifest.label().map(ToOwned::to_owned),
         title: manifest.title().map(ToOwned::to_owned),
         format: manifest.format().map(ToOwned::to_owned),
+        claim_version: None,
         claim_generator: manifest.claim_generator().map(ToOwned::to_owned),
         signature: manifest.signature_info().map(|signature| SignatureRecord {
             alg: signature
@@ -540,7 +600,66 @@ fn manifest_record(manifest: &Manifest) -> Result<ManifestRecord> {
                 kind: format!("{:?}", assertion.kind()).to_lowercase(),
             })
             .collect(),
+        statuses: Vec::new(),
     })
+}
+
+/// Claim version from crJSON manifest keys (e.g. "claim.v2" -> "2", "claim" -> "1").
+fn claim_version_from_manifest_value(manifest_value: &Value) -> Option<String> {
+    let obj = manifest_value.as_object()?;
+    if obj.contains_key("claim.v2") {
+        return Some("2".to_string());
+    }
+    if obj.contains_key("claim") {
+        return Some("1".to_string());
+    }
+    None
+}
+
+/// Claim generator string from crJSON manifest claim's claim_generator_info (name + version).
+fn claim_generator_from_manifest_value(manifest_value: &Value) -> Option<String> {
+    let claim = manifest_value
+        .get("claim.v2")
+        .or_else(|| manifest_value.get("claim"))?;
+    let info = claim.get("claim_generator_info")?.as_object()?;
+    let name = info.get("name").and_then(Value::as_str)?;
+    let version = info.get("version").and_then(Value::as_str);
+    let s = match version {
+        Some(v) => format!("{} {}", name, v),
+        None => name.to_string(),
+    };
+    Some(s)
+}
+
+/// Per-manifest validation results from crJSON manifest.validationResults (success/informational/failure).
+fn statuses_from_manifest_validation_results(manifest_value: &Value) -> Vec<StatusRecord> {
+    let mut out = Vec::new();
+    let vr = match manifest_value.get("validationResults") {
+        Some(v) => v,
+        None => return out,
+    };
+    for (kind, arr) in [
+        ("success", vr.get("success")),
+        ("informational", vr.get("informational")),
+        ("failure", vr.get("failure")),
+    ] {
+        let items = match arr.and_then(Value::as_array) {
+            Some(a) => a,
+            None => continue,
+        };
+        for item in items {
+            let code = item.get("code").and_then(Value::as_str).unwrap_or("").to_string();
+            let url = item.get("url").and_then(Value::as_str).map(ToOwned::to_owned);
+            let explanation = item.get("explanation").and_then(Value::as_str).map(ToOwned::to_owned);
+            out.push(StatusRecord {
+                code,
+                url,
+                explanation,
+                kind: kind.to_string(),
+            });
+        }
+    }
+    out
 }
 
 fn trust_classification(state: ValidationState) -> &'static str {
@@ -569,13 +688,7 @@ fn read_resource(resource: &str) -> Result<String> {
 }
 
 fn iso_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{now}")
+    chrono::Utc::now().format("%B %-d, %Y").to_string()
 }
 
 #[cfg(test)]
