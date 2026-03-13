@@ -20,10 +20,12 @@ glob.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 c2pa = { path = "../../vendor/c2pa-rs/sdk", features = ["file_io", "pdf", "fetch_remote_manifests"] }
+profile_evaluator_rs = { path = "../../vendor/profile-evaluator-rs" }
 
 [dev-dependencies]
 jsonschema = { workspace = true }

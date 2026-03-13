@@ -23,6 +23,7 @@ fn cli_with_input(input: String) -> Cli {
         inputs: vec![input],
         output: None,
         format: OutputFormat::Json,
+        profile: None,
         trust_mode: TrustMode::Default,
         trust_list: None,
         settings: None,

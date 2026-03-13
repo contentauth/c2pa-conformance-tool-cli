@@ -24,6 +24,10 @@ pub fn testfiles_assets_dir() -> PathBuf {
     testfiles_dir().join("assets")
 }
 
+pub fn testfiles_profiles_dir() -> PathBuf {
+    testfiles_dir().join("profiles")
+}
+
 pub fn testfiles_manifests_dir() -> PathBuf {
     testfiles_dir().join("manifests")
 }
@@ -89,4 +93,12 @@ pub fn testfile_crjson_invalid_schema_version() -> PathBuf {
 
 pub fn testfile_crjson_invalid_no_results() -> PathBuf {
     testfiles_dir().join("crjson/invalid_no_results_array.json")
+}
+
+pub fn testfile_profile_real_media() -> PathBuf {
+    testfiles_profiles_dir().join("real-media_profile.yml")
+}
+
+pub fn testfile_profile_real_life_capture() -> PathBuf {
+    testfiles_profiles_dir().join("real-life-capture_profile.yml")
 }
