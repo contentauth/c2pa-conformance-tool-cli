@@ -323,6 +323,10 @@ impl Validator {
                 for (i, m) in manifests_json.iter().enumerate() {
                     if i < manifests.len() {
                         manifests[i].statuses = statuses_from_manifest_validation_results(m);
+                        manifests[i].claim_version = claim_version_from_manifest_value(m);
+                        if let Some(gen) = claim_generator_from_manifest_value(m) {
+                            manifests[i].claim_generator = Some(gen);
+                        }
                     }
                 }
             }
@@ -564,6 +568,7 @@ fn manifest_record(manifest: &Manifest) -> Result<ManifestRecord> {
         label: manifest.label().map(ToOwned::to_owned),
         title: manifest.title().map(ToOwned::to_owned),
         format: manifest.format().map(ToOwned::to_owned),
+        claim_version: None,
         claim_generator: manifest.claim_generator().map(ToOwned::to_owned),
         signature: manifest.signature_info().map(|signature| SignatureRecord {
             alg: signature
@@ -597,6 +602,33 @@ fn manifest_record(manifest: &Manifest) -> Result<ManifestRecord> {
             .collect(),
         statuses: Vec::new(),
     })
+}
+
+/// Claim version from crJSON manifest keys (e.g. "claim.v2" -> "2", "claim" -> "1").
+fn claim_version_from_manifest_value(manifest_value: &Value) -> Option<String> {
+    let obj = manifest_value.as_object()?;
+    if obj.contains_key("claim.v2") {
+        return Some("2".to_string());
+    }
+    if obj.contains_key("claim") {
+        return Some("1".to_string());
+    }
+    None
+}
+
+/// Claim generator string from crJSON manifest claim's claim_generator_info (name + version).
+fn claim_generator_from_manifest_value(manifest_value: &Value) -> Option<String> {
+    let claim = manifest_value
+        .get("claim.v2")
+        .or_else(|| manifest_value.get("claim"))?;
+    let info = claim.get("claim_generator_info")?.as_object()?;
+    let name = info.get("name").and_then(Value::as_str)?;
+    let version = info.get("version").and_then(Value::as_str);
+    let s = match version {
+        Some(v) => format!("{} {}", name, v),
+        None => name.to_string(),
+    };
+    Some(s)
 }
 
 /// Per-manifest validation results from crJSON manifest.validationResults (success/informational/failure).
