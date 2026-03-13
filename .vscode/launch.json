@@ -4,14 +4,12 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Validate PXL JPG (standard trust list)",
+      "name": "Validate PXL",
       "cargo": {
         "args": ["build", "--bin", "c2pa-validate"],
         "filter": { "name": "c2pa-validate", "kind": "bin" }
       },
       "args": [
-        "--trust-mode",
-        "default",
         "-o",
         "output",
         "testfiles/assets/PXL_20260208_202351558.jpg"
@@ -21,14 +19,46 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Validate ChatGPT Image (standard trust list)",
+      "name": "Validate PXL->Markdown",
       "cargo": {
         "args": ["build", "--bin", "c2pa-validate"],
         "filter": { "name": "c2pa-validate", "kind": "bin" }
       },
       "args": [
-        "--trust-mode",
-        "default",
+        "-o",
+        "output",
+        "--format",
+        "markdown",
+        "testfiles/assets/PXL_20260208_202351558.jpg"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate PXL->HTML",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "-o",
+        "output",
+        "--format",
+        "html",
+        "testfiles/assets/PXL_20260208_202351558.jpg"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate ChatGPT Image",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
         "-o",
         "output",
         "testfiles/assets/ChatGPT_Image.png"

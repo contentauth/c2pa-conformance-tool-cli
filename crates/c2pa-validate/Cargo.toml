@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "CLI for C2PA conformance validation with structured crJSON reporting"
+default-run = "c2pa-validate"
 
 [lib]
 name = "c2pa_validate"
