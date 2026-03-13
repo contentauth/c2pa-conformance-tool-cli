@@ -510,11 +510,11 @@
     ],
     "trust": "signingCredential.trusted",
     "content": "assertion.dataHash.match",
-    "validationTime": "2026-03-12T02:06:06.215880+00:00"
+    "validationTime": "2026-03-13T15:12:56.133051+00:00"
   },
   "jsonGenerator": {
     "name": "c2pa-rs",
     "version": "0.78.0",
-    "date": "2026-03-12T02:06:06.217539+00:00"
+    "date": "2026-03-13T15:12:56.134919+00:00"
   }
 }

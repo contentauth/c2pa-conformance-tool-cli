@@ -22,6 +22,7 @@ use c2pa::{
     Context as C2paContext, Manifest, Reader,
 };
 use glob::glob;
+use profile_evaluator_rs::{evaluate, load_profile, CompiledProfile};
 use serde_json::Value;
 use tracing::debug;
 
@@ -42,6 +43,7 @@ const DEFAULT_ITL_URL: &str =
 #[derive(Debug, Clone)]
 pub struct Validator {
     cli: Cli,
+    compiled_profile: Option<CompiledProfile>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +58,18 @@ impl Validator {
         if cli.trust_mode == TrustMode::Custom && cli.trust_list.is_none() {
             bail!("--trust-mode custom requires --trust-list FILE_OR_URL");
         }
-        Ok(Self { cli })
+        let compiled_profile = cli
+            .profile
+            .as_ref()
+            .map(|path| {
+                load_profile(path)
+                    .with_context(|| format!("failed to load profile {}", path.display()))
+            })
+            .transpose()?;
+        Ok(Self {
+            cli,
+            compiled_profile,
+        })
     }
 
     pub fn run(&self) -> Result<CrJsonReport> {
@@ -136,6 +149,11 @@ impl Validator {
     }
 
     fn validate_crjson(&self, path: &Path) -> Result<ReportItem> {
+        if self.cli.profile.is_some() {
+            bail!(
+                "--profile can only be used with media assets or .c2pa sidecar manifests, not crJSON inputs"
+            );
+        }
         let data = fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
         let value: Value = serde_json::from_str(&data)
@@ -182,11 +200,11 @@ impl Validator {
         let mut warnings = Vec::new();
 
         for scenario in scenarios {
-            match self.read_asset(path, input_type.clone(), &scenario.settings) {
+            match self.read_asset(path, input_type, &scenario.settings) {
                 Ok((reader, reader_json)) => {
                     let asset = self.build_asset_report(
                         path,
-                        input_type.clone(),
+                        input_type,
                         scenario.label,
                         scenario.source,
                         reader,
@@ -304,6 +322,19 @@ impl Validator {
                 source: Some(scenario_source),
                 notes: trust_notes(&self.cli),
             },
+            profile_path: self
+                .cli
+                .profile
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            profile_evaluation: if self.compiled_profile.is_some() {
+                reader_json
+                    .as_ref()
+                    .map(|indicators| self.evaluate_profile(indicators))
+                    .transpose()?
+            } else {
+                None
+            },
             active_manifest_label,
             manifest_count: manifests.len(),
             ingredient_count,
@@ -322,6 +353,14 @@ impl Validator {
         }
 
         Ok(report)
+    }
+
+    fn evaluate_profile(&self, indicators: &Value) -> Result<Value> {
+        let Some(profile) = &self.compiled_profile else {
+            bail!("profile evaluation requested but no profile was loaded");
+        };
+
+        evaluate(profile, indicators).context("failed to evaluate profile")
     }
 
     fn build_trust_scenarios(&self) -> Result<Vec<TrustScenario>> {
@@ -349,6 +388,10 @@ impl Validator {
                 .with_file(settings_path)
                 .with_context(|| format!("failed to load settings {}", settings_path.display()))?;
         }
+        // Disable thumbnail generation; we don't use add_thumbnails, and leaving it enabled triggers a warning.
+        settings = settings
+            .with_value("builder.thumbnail.enabled", false)
+            .context("failed to set builder.thumbnail.enabled")?;
         Ok(settings)
     }
 

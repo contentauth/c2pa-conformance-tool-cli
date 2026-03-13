@@ -1,0 +1,137 @@
+# Trust Profile for determining if an asset is "fully generative AI"
+---
+profile_metadata:
+  name: Fully Generative AI Profile
+  issuer: C2PA Conformance Task Force
+  date: 2026-02-13T17:06:01.608Z
+  version: 1.0.0
+  language: en
+
+expressions:
+  _hasMultipleActions: length(manifests[0].assertions.'c2pa.actions.v2'.actions) > 1
+---
+# Section 0 - Metadata Output
+
+# Output the metadata
+- block:
+    name: "profile_metadata"
+    value: |
+      {{ expr "@.profile_metadata" }}
+
+---
+# Section 1
+
+- id: contentInfo
+  description: Section 1 - Content Information
+  title: Content Information
+  report_text: This section provides information about the content
+  
+- # check for content modification
+  # CrJSON uses validationResults (statusCodes): success/informational/failure arrays of { code, ... }
+  id: content
+  description: content is unmodified
+  expression: >
+    contains(deepScan(manifests[0].validationResults, "code"), "assertion.dataHash.match")
+  report_text:
+    "true":
+      en: This content has not been modified
+    "false":
+      en: This content has been modified
+
+---
+# Section 2 - Manifest requirements
+
+- id: manifestInfo
+  description: Section 2 - Manifest Information
+  title: Manifest Information
+  report_text: This section provides information about the Content Credential's manifest(s)
+
+- id: single_manifest
+  description: Checks that there is only a single manifest present
+  expression: length(manifests) == 1
+  report_text:
+    "true":
+      en: There is only a single manifest present
+    "false":
+      en: There is more than one manifest in this file
+
+---
+# Section 3 - Actions Information
+
+- id: actionsInfo
+  description: Section 3 - Actions Information
+  title: Actions Information
+  report_text: This section provides information about the Content Credential's actions
+
+- id: actions
+  description: Checks that the actions section is present & first action is c2pa.created
+  expression: >
+    hasProperty(manifests[0].assertions,"c2pa.actions.v2") && 
+    (manifests[0].assertions.'c2pa.actions.v2'.actions[0].action == "c2pa.created")
+  report_text:
+    "true":
+      en: The actions section is present & first action is c2pa.created
+    "false":
+      en: The actions section is not present or the first action is not c2pa.created
+
+- # Was the media created by an AI??
+  # Checks for 'trainedAlgorithmicMedia' which includes both regular and composited flavors.
+  id: genAI
+  description: Was the media created from a Generative AI?
+  expression: >
+    contains(manifests[0].assertions.'c2pa.actions.v2'.actions[0].digitalSourceType, 
+              "trainedAlgorithmicMedia")
+  report_text:
+    "true":
+      en: This media asset was created from a Generative AI
+    "false":
+      en: This media asset was not created from a Generative AI
+
+- id: anyCapturedActions
+  description: >
+    Checks if there are any actions beyond the first, and if so, 
+    their digitalSourceType is one of the types of "capture"
+  expression: >
+    !_hasMultipleActions(@) ||
+    !contains(manifests[0].assertions.'c2pa.actions.v2'.actions[1:].digitalSourceType, "Capture")
+  report_text:
+    "true":
+      en: All actions beyond the first do not have a digitalSourceType of "Capture"
+    "false":
+      en: One or more actions beyond the first does have a digitalSourceType of "Capture"
+
+- # Check if there are any actions beyond the first, and if so, they are not "c2pa.created" or "c2pa.opened"
+  id: notCreatedOrOpenedActions
+  description: >
+    Checks if there are any actions beyond the first, and if so, 
+    they are not "c2pa.created" or "c2pa.opened"
+  expression: >
+    !_hasMultipleActions(@) ||
+    (!contains(manifests[0].assertions.'c2pa.actions.v2'.actions[1:].action, "c2pa.created") &&
+    !contains(manifests[0].assertions.'c2pa.actions.v2'.actions[1:].action, "c2pa.opened"))
+  report_text:
+    "true":
+      en: All actions beyond the first are neither "c2pa.created" nor "c2pa.opened"
+    "false":
+      en: One or more actions beyond the first is "c2pa.created" or "c2pa.opened"
+
+---
+# Section 4 - Compliance
+
+- id: compliance
+  description: Section 4 - Compliance
+  title: Compliance
+  report_text: This section provides the compliance status of the asset with respect to this profile.
+
+- # Final compliance determination based on the checks in this profile
+  id: c2pa:profile_compliance
+  description: is the asset compliant with this profile?
+  expression: >
+    @.profile.single_manifest && @.profile.actions && @.profile.genAI
+    && @.profile.anyCapturedActions && @.profile.notCreatedOrOpenedActions
+  report_text:
+    "true":
+      en: |
+        Compliance Status: {{profile.c2pa:profile_compliance}}
+    "false":
+      en: This asset is not compliant with this profile.
