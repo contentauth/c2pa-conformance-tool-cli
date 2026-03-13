@@ -135,10 +135,14 @@ pub struct ManifestRecord {
     pub label: Option<String>,
     pub title: Option<String>,
     pub format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_version: Option<String>,
     pub claim_generator: Option<String>,
     pub signature: Option<SignatureRecord>,
     pub ingredients: Vec<IngredientRecord>,
     pub assertions: Vec<AssertionRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub statuses: Vec<StatusRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,74 +182,273 @@ impl CrJsonReport {
     pub fn render_markdown(&self) -> String {
         let mut output = String::new();
         output.push_str("# C2PA Conformance Report\n\n");
-        output.push_str(&format!(
-            "- Total: {}\n- Trusted: {}\n- Valid: {}\n- Invalid: {}\n- Errors: {}\n\n",
-            self.summary.total,
-            self.summary.trusted,
-            self.summary.valid,
-            self.summary.invalid,
-            self.summary.errors
-        ));
 
-        for result in &self.results {
-            match result {
-                ReportItem::Asset(report) => {
-                    output.push_str(&format!("## `{}`\n\n", report.input.resolved_path));
-                    output.push_str(&format!(
-                        "- Validation state: `{}`\n- Trust: `{}`\n- Trust source: `{}`\n- Manifests: `{}`\n- Ingredients: `{}`\n\n",
-                        render_state(report.validation_state),
-                        report.trust.classification,
-                        report.trust.source.as_deref().unwrap_or("n/a"),
-                        report.manifest_count,
-                        report.ingredient_count
-                    ));
+        let result = match self.results.first() {
+            Some(r) => r,
+            None => {
+                output.push_str("## Report Generation Info\n\n");
+                output.push_str(&format!(
+                    "**Tool:** {} {}  \n**Generated:** {}\n",
+                    self.tool.name,
+                    self.tool.version,
+                    self.generated_at
+                ));
+                return output;
+            }
+        };
+
+        match result {
+            ReportItem::Asset(report) => {
+                output.push_str(&format!("**Asset:** {}\n\n", report.input.resolved_path));
+                output.push_str(&format!("**Format:** {}\n\n", report.input.detected_format));
+
+                output.push_str("## Validation & Trust\n\n");
+                    output.push_str(&format!("- **Trust Status:** `{}`\n", render_state(report.validation_state)));
+                    if !report.trust.notes.is_empty() {
+                        for note in &report.trust.notes {
+                            output.push_str(&format!("- **Note:** {}\n", note));
+                        }
+                    }
+                    let (claim_sig, signing_cert, timestamp) = partition_validation_statuses(&report.statuses);
+                    if !claim_sig.is_empty() {
+                        output.push_str("- **Claim signature:** ");
+                        output.push_str(&format_status_list(claim_sig));
+                        output.push_str("\n");
+                    }
+                    if !signing_cert.is_empty() {
+                        output.push_str("- **Signing certificate:** ");
+                        output.push_str(&format_status_list(signing_cert));
+                        output.push_str("\n");
+                    }
+                    if !timestamp.is_empty() {
+                        output.push_str("- **Timestamp:** ");
+                        output.push_str(&format_status_list(timestamp));
+                        output.push_str("\n");
+                    }
+                    output.push_str("\n");
+
                     if let Some(profile_path) = &report.profile_path {
+                        output.push_str("## Profile\n\n");
                         output.push_str(&format!(
-                            "- Profile: `{}`\n- Profile compliance: `{}`\n\n",
+                            "- **Profile:** `{}`\n- **Compliance:** `{}`\n\n",
                             profile_path,
                             render_profile_compliance(report.profile_evaluation.as_ref())
                         ));
                     }
-                }
-                ReportItem::CrJsonValidation(report) => {
-                    output.push_str(&format!("## `{}`\n\n", report.input.resolved_path));
-                    output.push_str(&format!(
-                        "- crJSON validation: `{}`\n\n",
-                        if report.valid { "pass" } else { "fail" }
-                    ));
+
+                    output.push_str("## Manifests\n\n");
+                    for (i, manifest) in report.manifests.iter().enumerate() {
+                        let heading = manifest
+                            .title
+                            .as_deref()
+                            .or(manifest.label.as_deref())
+                            .unwrap_or("(unnamed)");
+                        output.push_str(&format!("### Manifest {}: {}\n\n", i + 1, heading));
+
+                        output.push_str("#### Claim\n\n");
+                        if let Some(ref v) = manifest.claim_version {
+                            output.push_str(&format!("- **Claim version:** {}\n", v));
+                        }
+                        if let Some(ref gen) = manifest.claim_generator {
+                            output.push_str(&format!("- **Claim generator:** {}\n", gen));
+                        }
+                        if manifest.claim_version.is_none() && manifest.claim_generator.is_none() {
+                            output.push_str("- *(none)*\n");
+                        }
+                        output.push_str("\n");
+
+                        output.push_str("#### Signature Info\n\n");
+                        if let Some(ref sig) = manifest.signature {
+                            if let Some(ref cn) = sig.common_name {
+                                output.push_str(&format!("- **Signing (CN):** {}\n", cn));
+                            }
+                            if let Some(ref issuer) = sig.issuer {
+                                output.push_str(&format!("- **Issuer:** {}\n", issuer));
+                            }
+                            if let Some(ref t) = sig.time {
+                                output.push_str(&format!("- **Time:** {}\n", t));
+                            }
+                        }
+                        if manifest.signature.is_none() {
+                            output.push_str("- *(none)*\n");
+                        }
+                        output.push_str("\n");
+
+                        output.push_str("#### Assertions\n\n");
+                        for a in &manifest.assertions {
+                            output.push_str(&format!("- {}\n", a.label));
+                        }
+                        if manifest.assertions.is_empty() {
+                            output.push_str("- *(none)*\n");
+                        }
+                        output.push_str("\n");
+
+                        if !manifest.statuses.is_empty() {
+                            output.push_str("#### Validation\n\n");
+                            for (subheading, kind_key) in [
+                                ("Success", "success"),
+                                ("Informational", "informational"),
+                                ("Failure", "failure"),
+                            ] {
+                                let items: Vec<_> = manifest
+                                    .statuses
+                                    .iter()
+                                    .filter(|s| s.kind == kind_key)
+                                    .collect();
+                                if !items.is_empty() {
+                                    output.push_str(&format!("##### {}\n\n", subheading));
+                                    for status in items {
+                                        output.push_str(&format!("- `{}`", status.code));
+                                        if let Some(ref exp) = status.explanation {
+                                            output.push_str(&format!(" — {}", exp));
+                                        }
+                                        output.push_str("\n");
+                                    }
+                                    output.push_str("\n");
+                                }
+                            }
+                        }
+                    }
+
+                    if !report.warnings.is_empty() {
+                        output.push_str("## Warnings\n\n");
+                        for w in &report.warnings {
+                            output.push_str(&format!("- {}\n", w));
+                        }
+                        output.push_str("\n");
+                    }
+            }
+            ReportItem::CrJsonValidation(report) => {
+                output.push_str(&format!("**Asset:** {}\n\n", report.input.resolved_path));
+                output.push_str("**Format:** crJSON\n\n");
+                output.push_str("## Validation\n\n");
+                output.push_str(&format!(
+                    "- **Result:** `{}`\n",
+                    if report.valid { "pass" } else { "fail" }
+                ));
+                if !report.messages.is_empty() {
+                    output.push_str("\n**Messages:**\n\n");
+                    for msg in &report.messages {
+                        output.push_str(&format!("- {}\n", msg));
+                    }
                 }
             }
         }
+
+        output.push_str("## Report Generation Info\n\n");
+        output.push_str(&format!(
+            "**Tool:** {} {}  \n**Generated:** {}\n",
+            self.tool.name,
+            self.tool.version,
+            self.generated_at
+        ));
 
         output
     }
 
     pub fn render_html(&self) -> String {
-        let body = self
-            .results
-            .iter()
-            .map(|result| match result {
-                ReportItem::Asset(report) => format!(
-                    "<section><h2>{}</h2><p>state: {} | trust: {} | source: {}{}</p></section>",
-                    html_escape(&report.input.resolved_path),
-                    render_state(report.validation_state),
-                    html_escape(&report.trust.classification),
-                    html_escape(report.trust.source.as_deref().unwrap_or("n/a")),
-                    render_profile_html(report)
-                ),
-                ReportItem::CrJsonValidation(report) => format!(
-                    "<section><h2>{}</h2><p>crJSON validation: {}</p></section>",
-                    html_escape(&report.input.resolved_path),
-                    if report.valid { "pass" } else { "fail" }
-                ),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let report_generation_info = format!(
+            r#"<h2>Report Generation Info</h2><table class="info-table"><tbody><tr><th>Tool</th><td>{} {}</td></tr><tr><th>Generated</th><td>{}</td></tr></tbody></table>"#,
+            html_escape(self.tool.name),
+            html_escape(self.tool.version),
+            html_escape(&self.generated_at)
+        );
+
+        let body = match self.results.first() {
+            Some(ReportItem::Asset(report)) => render_single_asset_html(report),
+            Some(ReportItem::CrJsonValidation(report)) => render_single_crjson_html(report),
+            None => String::new(),
+        };
+
+        const STYLES: &str = r#"
+body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1.5rem 2rem; background: #f5f2ed; color: #1a1a1a; max-width: 56rem; }
+h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.report-meta { color: #555; font-size: 0.875rem; }
+.report-body { padding: 1rem 0; }
+.report-body .report-asset { margin: 0 0 0.25rem; word-break: break-all; }
+.report-body .report-format { margin: 0 0 1rem; color: #555; }
+.report-body h2 { font-size: 1.1rem; margin: 1rem 0 0.5rem; }
+.report-body h3 { font-size: 1rem; margin: 0.75rem 0 0.35rem; }
+.badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.badge-trusted, .badge-pass { background: #d4edda; color: #155724; }
+.badge-valid { background: #cce5ff; color: #004085; }
+.badge-invalid, .badge-fail { background: #f8d7da; color: #721c24; }
+.badge-unknown { background: #e2e3e5; color: #383d41; }
+.trust-status { margin: 0.75rem 0 1rem; padding: 0.75rem 1rem; background: #f0f4f8; border-radius: 8px; border-left: 4px solid #0d6efd; font-size: 1.05rem; }
+.trust-status .badge { font-size: 0.95rem; padding: 0.35rem 0.65rem; }
+.info-table { border-collapse: collapse; width: 100%; max-width: 40rem; margin: 0.35rem 0; font-size: 0.9rem; }
+.info-table th { text-align: left; padding: 0.35rem 0.75rem 0.35rem 0; color: #555; font-weight: 600; width: 10rem; vertical-align: top; }
+.info-table td { padding: 0.35rem 0.75rem 0.35rem 0; }
+.info-table tr:nth-child(even) td { background: #f9f9f8; }
+.info-table tr:nth-child(odd) td { background: #fff; }
+details.manifest-details { margin: 0.5rem 0; border: 1px solid #d4c8b2; border-radius: 8px; background: #fff; overflow: hidden; }
+details.manifest-details[open] { border-left: 4px solid #0d6efd; }
+summary.manifest-summary { padding: 0.6rem 0.75rem; cursor: pointer; font-weight: 600; font-size: 0.95rem; background: #f9f7f4; list-style: none; }
+summary.manifest-summary::-webkit-details-marker { display: none; }
+summary.manifest-summary::before { content: "▶ "; font-size: 0.7rem; color: #666; }
+details.manifest-details[open] summary.manifest-summary::before { content: "▼ "; }
+.manifest-inner { padding: 0.75rem 1rem; border-top: 1px solid #eee; }
+.manifest-inner h4 { font-size: 0.95rem; margin: 0.75rem 0 0.4rem; color: #444; }
+.manifest-inner h4:first-child { margin-top: 0; }
+.manifest-inner h5 { font-size: 0.9rem; margin: 0.5rem 0 0.25rem; }
+.status-table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin: 0.35rem 0; }
+.status-table th { text-align: left; padding: 0.4rem 0.6rem; font-weight: 600; }
+.status-table td { padding: 0.4rem 0.6rem; }
+.status-table .status-success { background: #d4edda; border-left: 3px solid #28a745; }
+.status-table .status-informational { background: #fff3cd; border-left: 3px solid #ffc107; }
+.status-table .status-failure { background: #f8d7da; border-left: 3px solid #dc3545; }
+.status-emoji { font-style: normal; }
+.warnings-list { margin: 0.35rem 0; }
+.warnings-list li { margin: 0.25rem 0; }
+"#;
 
         format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><title>C2PA Conformance Report</title><style>body{{font-family:ui-monospace,monospace;margin:2rem;background:#f7f4ec;color:#1e1b16}}section{{padding:1rem 1.25rem;margin:0 0 1rem;background:#fff;border:1px solid #d4c8b2;border-radius:12px}}</style></head><body><h1>C2PA Conformance Report</h1>{body}</body></html>"
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>C2PA Conformance Report</title><style>{}</style></head><body><h1>C2PA Conformance Report</h1><div class="report-body">{}{}</div></body></html>"#,
+            STYLES, body, report_generation_info
         )
     }
+}
+
+#[allow(dead_code)]
+fn format_input_type(t: InputType) -> &'static str {
+    match t {
+        InputType::Asset => "asset",
+        InputType::SidecarManifest => "sidecar manifest",
+        InputType::CrJson => "crJSON",
+    }
+}
+
+/// Partitions statuses into claim signature, signing certificate, and timestamp (C2PA validation codes).
+fn partition_validation_statuses(statuses: &[StatusRecord]) -> (Vec<&StatusRecord>, Vec<&StatusRecord>, Vec<&StatusRecord>) {
+    let mut claim_sig = Vec::new();
+    let mut signing_cert = Vec::new();
+    let mut timestamp = Vec::new();
+    for s in statuses {
+        if s.code.starts_with("claimSignature.") {
+            claim_sig.push(s);
+        } else if s.code.starts_with("signingCredential.") || s.code.starts_with("signingCertificate.") {
+            signing_cert.push(s);
+        } else if s.code.starts_with("timeStamp.") {
+            timestamp.push(s);
+        }
+    }
+    (claim_sig, signing_cert, timestamp)
+}
+
+fn format_status_list(statuses: Vec<&StatusRecord>) -> String {
+    statuses
+        .iter()
+        .map(|s| {
+            let code = &s.code;
+            let exp = s.explanation.as_deref().unwrap_or("");
+            if exp.is_empty() {
+                code.clone()
+            } else {
+                format!("{} ({})", code, exp)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn render_state(state: ValidationState) -> &'static str {
@@ -271,16 +474,170 @@ fn render_profile_compliance(profile_evaluation: Option<&serde_json::Value>) -> 
     }
 }
 
-fn render_profile_html(report: &AssetReport) -> String {
-    let Some(profile_path) = &report.profile_path else {
-        return String::new();
+fn render_single_asset_html(report: &AssetReport) -> String {
+    let state_class = match report.validation_state {
+        ValidationState::Trusted => "trusted",
+        ValidationState::Valid => "valid",
+        ValidationState::Invalid => "invalid",
     };
+    let mut out = format!(
+        r#"<p class="report-asset"><strong>Asset:</strong> {}</p><p class="report-format"><strong>Format:</strong> {}</p><h2>Validation &amp; Trust</h2><p class="trust-status"><strong>Trust Status:</strong> <span class="badge badge-{}">{}</span></p><table class="info-table"><tbody>"#,
+        html_escape(&report.input.resolved_path),
+        html_escape(&report.input.detected_format),
+        state_class,
+        render_state(report.validation_state)
+    );
+    if !report.trust.notes.is_empty() {
+        out.push_str(&format!(
+            "<tr><th>Notes</th><td><ul style=\"margin:0;padding-left:1.25rem;\">{}</ul></td></tr>",
+            report
+                .trust
+                .notes
+                .iter()
+                .map(|n| format!("<li>{}</li>", html_escape(n)))
+                .collect::<String>()
+        ));
+    }
+    let (claim_sig, signing_cert, timestamp) = partition_validation_statuses(&report.statuses);
+    if !claim_sig.is_empty() {
+        out.push_str(&format!(
+            r#"<tr><th>Claim signature</th><td>{}</td></tr>"#,
+            html_escape(&format_status_list(claim_sig))
+        ));
+    }
+    if !signing_cert.is_empty() {
+        out.push_str(&format!(
+            r#"<tr><th>Signing certificate</th><td>{}</td></tr>"#,
+            html_escape(&format_status_list(signing_cert))
+        ));
+    }
+    if !timestamp.is_empty() {
+        out.push_str(&format!(
+            r#"<tr><th>Timestamp</th><td>{}</td></tr>"#,
+            html_escape(&format_status_list(timestamp))
+        ));
+    }
+    out.push_str("</tbody></table>");
 
-    format!(
-        " | profile: {} | compliance: {}",
-        html_escape(profile_path),
-        render_profile_compliance(report.profile_evaluation.as_ref())
-    )
+    if let Some(profile_path) = &report.profile_path {
+        let badge_class = match profile_compliance_value(report.profile_evaluation.as_ref()) {
+            Some(true) => "pass",
+            Some(false) => "fail",
+            None => "unknown",
+        };
+        out.push_str(&format!(
+            r#"<h2>Profile</h2><table class="info-table"><tbody><tr><th>Path</th><td>{}</td></tr><tr><th>Compliance</th><td><span class="badge badge-{}">{}</span></td></tr></tbody></table>"#,
+            html_escape(profile_path),
+            badge_class,
+            render_profile_compliance(report.profile_evaluation.as_ref())
+        ));
+    }
+
+    if !report.manifests.is_empty() {
+        out.push_str("<h2>Manifests</h2>");
+        for (i, manifest) in report.manifests.iter().enumerate() {
+            let heading = manifest
+                .title
+                .as_deref()
+                .or(manifest.label.as_deref())
+                .unwrap_or("(unnamed)");
+            out.push_str(&format!(
+                r#"<details class="manifest-details"><summary class="manifest-summary">Manifest {}: {}</summary><div class="manifest-inner">"#,
+                i + 1,
+                html_escape(heading)
+            ));
+
+            out.push_str("<h4>Claim</h4><table class=\"info-table\"><tbody>");
+            if let Some(ref v) = manifest.claim_version {
+                out.push_str(&format!("<tr><th>Claim version</th><td>{}</td></tr>", html_escape(v)));
+            }
+            if let Some(ref gen) = manifest.claim_generator {
+                out.push_str(&format!("<tr><th>Claim generator</th><td>{}</td></tr>", html_escape(gen)));
+            }
+            if manifest.claim_version.is_none() && manifest.claim_generator.is_none() {
+                out.push_str("<tr><th>Claim</th><td><em>(none)</em></td></tr>");
+            }
+            out.push_str("</tbody></table>");
+
+            out.push_str("<h4>Signature Info</h4><table class=\"info-table\"><tbody>");
+            if let Some(ref sig) = manifest.signature {
+                if let Some(ref cn) = sig.common_name {
+                    out.push_str(&format!("<tr><th>Signing (CN)</th><td>{}</td></tr>", html_escape(cn)));
+                }
+                if let Some(ref issuer) = sig.issuer {
+                    out.push_str(&format!("<tr><th>Issuer</th><td>{}</td></tr>", html_escape(issuer)));
+                }
+                if let Some(ref t) = sig.time {
+                    out.push_str(&format!("<tr><th>Time</th><td>{}</td></tr>", html_escape(t)));
+                }
+            }
+            if manifest.signature.is_none() {
+                out.push_str("<tr><th>Signature</th><td><em>(none)</em></td></tr>");
+            }
+            out.push_str("</tbody></table>");
+
+            out.push_str("<h4>Assertions</h4><table class=\"info-table\"><thead><tr><th>Assertion</th></tr></thead><tbody>");
+            for a in &manifest.assertions {
+                out.push_str(&format!("<tr><td>{}</td></tr>", html_escape(&a.label)));
+            }
+            if manifest.assertions.is_empty() {
+                out.push_str("<tr><td><em>(none)</em></td></tr>");
+            }
+            out.push_str("</tbody></table>");
+
+            if !manifest.statuses.is_empty() {
+                out.push_str("<h4>Validation</h4><table class=\"status-table\"><thead><tr><th>Type</th><th>Code</th><th>Details</th></tr></thead><tbody>");
+                for status in &manifest.statuses {
+                    let (label, row_class) = match status.kind.as_str() {
+                        "success" => ("&#x2714; Success", "status-success"),           // ✓
+                        "informational" => ("&#x2139; Informational", "status-informational"), // ℹ
+                        _ => ("&#x2718; Failure", "status-failure"),                    // ✗
+                    };
+                    let explanation = status
+                        .explanation
+                        .as_deref()
+                        .map(html_escape)
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        r#"<tr class="{}"><td class="status-emoji">{}</td><td><code>{}</code></td><td>{}</td></tr>"#,
+                        row_class,
+                        label,
+                        html_escape(&status.code),
+                        explanation
+                    ));
+                }
+                out.push_str("</tbody></table>");
+            }
+            out.push_str("</div></details>");
+        }
+    }
+
+    if !report.warnings.is_empty() {
+        out.push_str("<h2>Warnings</h2><ul class=\"warnings-list\">");
+        for w in &report.warnings {
+            out.push_str(&format!("<li><span class=\"status-emoji\" aria-hidden=\"true\">&#x26A0;</span> {}</li>", html_escape(w)));
+        }
+        out.push_str("</ul>");
+    }
+
+    out
+}
+
+fn render_single_crjson_html(report: &CrJsonValidationReport) -> String {
+    let mut out = format!(
+        r#"<p class="report-asset"><strong>Asset:</strong> {}</p><p class="report-format"><strong>Format:</strong> crJSON</p><h2>Validation</h2><p><span class="badge badge-{}">{}</span></p>"#,
+        html_escape(&report.input.resolved_path),
+        if report.valid { "pass" } else { "fail" },
+        if report.valid { "pass" } else { "fail" }
+    );
+    if !report.messages.is_empty() {
+        out.push_str("<ul>");
+        for m in &report.messages {
+            out.push_str(&format!("<li>{}</li>", html_escape(m)));
+        }
+        out.push_str("</ul>");
+    }
+    out
 }
 
 fn profile_compliance_value(profile_evaluation: Option<&serde_json::Value>) -> Option<bool> {
@@ -414,10 +771,9 @@ mod tests {
         };
         let md = report.render_markdown();
         assert!(md.starts_with("# C2PA Conformance Report"));
-        assert!(md.contains("- Total: 2"));
-        assert!(md.contains("- Trusted: 1"));
-        assert!(md.contains("## `/path/to/file.json`"));
-        assert!(md.contains("crJSON validation: `pass`"));
+        assert!(md.contains("## Validation"));
+        assert!(md.contains("**Result:** `pass`"));
+        assert!(md.contains("## Report Generation Info"));
     }
 
     #[test]
@@ -449,6 +805,7 @@ mod tests {
             html.contains("file&amp;name.json"),
             "ampersand should be escaped"
         );
-        assert!(html.contains("crJSON validation: fail"));
+        assert!(html.contains("badge-fail"));
+        assert!(html.contains("report-body"));
     }
 }
