@@ -71,7 +71,8 @@ fn report_render_markdown_contains_expected() {
     let report = validator.run().unwrap();
     let md = report.render_markdown();
     assert!(md.contains("# C2PA Conformance Report"));
-    assert!(md.contains("crJSON validation"));
+    assert!(md.contains("Report Generation Info"));
+    assert!(md.contains("crJSON"));
 }
 
 #[test]
