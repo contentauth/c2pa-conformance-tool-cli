@@ -1,6 +1,6 @@
 # c2pa-conformance-tool-cli
 
-A Rust CLI for validating C2PA media assets, standalone `.c2pa` manifests, and crJSON reports. Output is structured crJSON by default, with optional Markdown or HTML summaries.
+A Rust CLI for validating C2PA media assets, standalone `.c2pa` manifests, and crJSON reports. It can also evaluate asset profiles against an asset's crJSON indicators. Structured output is JSON by default, with optional YAML, Markdown, or HTML summaries.
 
 ## What it validates
 
@@ -18,9 +18,10 @@ Custom trust lists can be a local path or URL to a PEM file. Use `--settings` to
 
 ## Output
 
-- **Formats**: `--format json` (default), `markdown`, or `html`
-- **Output location**: `-o/--output` file or directory. If omitted, a single result is written next to the source (e.g. `photo.jpg` → `photo.json`); with multiple inputs and JSON, use `-o <directory>` to write one file per input
-- **crJSON**: JSON output follows the crJSON schema (Reader crJSON for assets; full report with summary for multi-asset)
+- **Formats**: `--format json` (default), `yaml`, `markdown`, or `html`
+- **Output location**: `-o/--output` file or directory. If omitted, a single result is written next to the source (e.g. `photo.jpg` → `photo.json`); with multiple inputs and structured output (`json` or `yaml`), use `-o <directory>` to write one file per input
+- **crJSON**: JSON or YAML output uses Reader crJSON for assets unless `--profile` is supplied
+- **Profile evaluation**: `--profile path/to/profile.yml` evaluates the profile against each asset's Reader crJSON and writes the profile report in the selected structured format
 
 ## Usage examples
 
@@ -58,6 +59,13 @@ cargo run --bin c2pa-validate -- --format markdown -o report.md image.jpg
 cargo run --bin c2pa-validate -- --strict image.jpg
 ```
 
+Profile evaluation:
+
+```bash
+cargo run --bin c2pa-validate -- --profile ./testfiles/profiles/real-media_profile.yml image.jpg
+cargo run --bin c2pa-validate -- --profile ./testfiles/profiles/real-life-capture_profile.yml --format yaml -o profile-report.yaml image.png
+```
+
 Overlay c2pa-rs settings from a file:
 
 ```bash
@@ -77,7 +85,8 @@ cargo run --bin c2pa-validate -- --version
 |--------|-------------|
 | `INPUT...` | Files or glob patterns to validate |
 | `-o, --output FILE_OR_DIR` | Output file or directory |
-| `-f, --format json\|markdown\|html` | Output format (default: json) |
+| `-f, --format json\|yaml\|markdown\|html` | Output format (default: json) |
+| `--profile FILE` | Evaluate this YAML profile against each asset's crJSON indicators |
 | `-t, --trust-mode default\|itl\|custom` | Trust list mode |
 | `--trust-list FILE_OR_URL` | Trust list path/URL (required for custom) |
 | `--settings FILE` | Overlay c2pa-rs settings (JSON/TOML) |
