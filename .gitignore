@@ -1,1 +1,6 @@
 target/
+.cursor/rules/manifest.json
+.gitignore
+.cursor/rules/security-global/*
+.cursor/rules/security-lang/*
+output/*

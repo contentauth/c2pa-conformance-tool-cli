@@ -19,6 +19,7 @@ Unit tests (no I/O) run in the library; integration tests use fixtures under `te
 | `crates/c2pa-validate/tests/asset_validation.rs` | C2PA asset validation (JPEG, PNG, MP4, PDF, .c2pa sidecars) |
 | `crates/c2pa-validate/tests/crjson_validation.rs` | crJSON schema validation (valid/invalid fixtures) |
 | `crates/c2pa-validate/tests/output_formats.rs` | Exit code, Markdown/HTML render, full run with `-o` |
+| `crates/c2pa-validate/tests/profile_outputs.rs` | Profile evaluation wiring and JSON/YAML output |
 | `crates/c2pa-validate/tests/schema_validation.rs` | Output JSON validated against crJSON schema (draft 2020-12) |
 | `crates/c2pa-validate/tests/negative_tests.rs` | Invalid/missing paths, empty inputs, glob matching nothing, missing params |
 | `testfiles/assets/` | Sample C2PA assets (JPEG, PNG, MP4, PDF) |
@@ -35,6 +36,7 @@ Unit tests (no I/O) run in the library; integration tests use fixtures under `te
 - **Lib**: `normalize_output_path()`, `run_with_cli()` (writes to `-o`).
 - **Validator**: Glob expansion, glob detection, trust classification mapping.
 - **Multi-asset JSON output**: Two assets with `-o <directory>` and JSON format produce two `.json` files (one per asset) with correct stems; each file is valid crJSON.
+- **Profile output**: Asset profiles in `testfiles/profiles/` are evaluated against sample assets; JSON and YAML output are verified against the in-memory profile evaluation.
 - **Glob patterns**: Pattern `testfiles/assets/PXL*.jpg` expands to both PXL assets; report has two results and correct summary.
 - **Negative / error paths**: Empty inputs → "no input files matched"; glob matching no files → "did not match any files"; non-existent file → "failed to validate" / "failed to resolve"; `--trust-mode custom` without `--trust-list` → `Validator::new` error; `run_with_cli` with empty or bad path returns `ExitCode::FAILURE`.
 
@@ -86,3 +88,10 @@ Unit tests (no I/O) run in the library; integration tests use fixtures under `te
 **Schema** (`crJSON-docs/`):
 
 - `crJSON-schema.json` — JSON Schema (draft 2020-12) for Content Credential JSON; used to validate tool output in `schema_validation` tests.
+
+**Profiles** (`testfiles/profiles/`):
+
+- `real-media_profile.yml` — Checks that an asset is real media.
+- `real-life-capture_profile.yml` — Checks that an asset is a real-life capture.
+- `human-illustration_profile.yml` — Checks that an asset is human-created illustration.
+- `fully-generative-ai_profile.yml` — Checks that an asset is fully generative AI.

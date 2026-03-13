@@ -1,3 +1,9 @@
 [submodule "vendor/c2pa-rs"]
 	path = vendor/c2pa-rs
 	url = https://github.com/contentauth/c2pa-rs.git
+[submodule "vendor/profile-evaluator-rs"]
+	path = vendor/profile-evaluator-rs
+	url = https://github.com/lrosenthol/profile-evaluator-rs.git
+[submodule "vendor/json-formula-rs"]
+	path = vendor/json-formula-rs
+	url = https://github.com/lrosenthol/json-formula-rs.git

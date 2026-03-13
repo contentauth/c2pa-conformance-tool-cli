@@ -71,6 +71,10 @@ pub struct AssetReport {
     pub input: InputDescriptor,
     pub validation_state: ValidationState,
     pub trust: TrustAssessment,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_evaluation: Option<serde_json::Value>,
     pub active_manifest_label: Option<String>,
     pub manifest_count: usize,
     pub ingredient_count: usize,
@@ -195,6 +199,13 @@ impl CrJsonReport {
                         report.manifest_count,
                         report.ingredient_count
                     ));
+                    if let Some(profile_path) = &report.profile_path {
+                        output.push_str(&format!(
+                            "- Profile: `{}`\n- Profile compliance: `{}`\n\n",
+                            profile_path,
+                            render_profile_compliance(report.profile_evaluation.as_ref())
+                        ));
+                    }
                 }
                 ReportItem::CrJsonValidation(report) => {
                     output.push_str(&format!("## `{}`\n\n", report.input.resolved_path));
@@ -215,11 +226,12 @@ impl CrJsonReport {
             .iter()
             .map(|result| match result {
                 ReportItem::Asset(report) => format!(
-                    "<section><h2>{}</h2><p>state: {} | trust: {} | source: {}</p></section>",
+                    "<section><h2>{}</h2><p>state: {} | trust: {} | source: {}{}</p></section>",
                     html_escape(&report.input.resolved_path),
                     render_state(report.validation_state),
                     html_escape(&report.trust.classification),
-                    html_escape(report.trust.source.as_deref().unwrap_or("n/a"))
+                    html_escape(report.trust.source.as_deref().unwrap_or("n/a")),
+                    render_profile_html(report)
                 ),
                 ReportItem::CrJsonValidation(report) => format!(
                     "<section><h2>{}</h2><p>crJSON validation: {}</p></section>",
@@ -249,6 +261,40 @@ fn html_escape(value: &str) -> String {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+fn render_profile_compliance(profile_evaluation: Option<&serde_json::Value>) -> &'static str {
+    match profile_compliance_value(profile_evaluation) {
+        Some(true) => "pass",
+        Some(false) => "fail",
+        None => "unknown",
+    }
+}
+
+fn render_profile_html(report: &AssetReport) -> String {
+    let Some(profile_path) = &report.profile_path else {
+        return String::new();
+    };
+
+    format!(
+        " | profile: {} | compliance: {}",
+        html_escape(profile_path),
+        render_profile_compliance(report.profile_evaluation.as_ref())
+    )
+}
+
+fn profile_compliance_value(profile_evaluation: Option<&serde_json::Value>) -> Option<bool> {
+    let statements = profile_evaluation?.get("statements")?.as_array()?;
+    for section in statements {
+        let section_items = section.as_array()?;
+        for item in section_items {
+            if item.get("id").and_then(serde_json::Value::as_str) == Some("c2pa:profile_compliance")
+            {
+                return item.get("value").and_then(serde_json::Value::as_bool);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

@@ -40,6 +40,13 @@ pub struct Cli {
     pub format: OutputFormat,
 
     #[arg(
+        long,
+        value_name = "FILE",
+        help = "Path to a YAML profile to evaluate against each asset's crJSON indicators"
+    )]
+    pub profile: Option<PathBuf>,
+
+    #[arg(
         short = 't',
         long,
         value_enum,
@@ -72,6 +79,7 @@ pub struct Cli {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, ValueEnum)]
 pub enum OutputFormat {
     Json,
+    Yaml,
     Markdown,
     Html,
 }

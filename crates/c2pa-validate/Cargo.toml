@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "CLI for C2PA conformance validation with structured crJSON reporting"
+default-run = "c2pa-validate"
 
 [lib]
 name = "c2pa_validate"
@@ -20,10 +21,12 @@ glob.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 c2pa = { path = "../../vendor/c2pa-rs/sdk", features = ["file_io", "pdf", "fetch_remote_manifests"] }
+profile_evaluator_rs = { path = "../../vendor/profile-evaluator-rs" }
 
 [dev-dependencies]
 jsonschema = { workspace = true }
