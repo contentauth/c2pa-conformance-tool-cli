@@ -388,6 +388,10 @@ impl Validator {
                 .with_file(settings_path)
                 .with_context(|| format!("failed to load settings {}", settings_path.display()))?;
         }
+        // Disable thumbnail generation; we don't use add_thumbnails, and leaving it enabled triggers a warning.
+        settings = settings
+            .with_value("builder.thumbnail.enabled", false)
+            .context("failed to set builder.thumbnail.enabled")?;
         Ok(settings)
     }
 

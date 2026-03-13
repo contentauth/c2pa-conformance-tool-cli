@@ -3,3 +3,4 @@ target/
 .gitignore
 .cursor/rules/security-global/*
 .cursor/rules/security-lang/*
+output/*
