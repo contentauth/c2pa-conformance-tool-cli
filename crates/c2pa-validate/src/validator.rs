@@ -314,7 +314,9 @@ impl Validator {
         let mut statuses = collect_statuses(&reader);
         if statuses.is_empty() {
             if let Some(ref j) = reader_json {
-                statuses = statuses_from_crjson(j);
+                if let Some(first) = j.get("manifests").and_then(Value::as_array).and_then(|a| a.first()) {
+                    statuses = statuses_from_manifest_validation_results(first);
+                }
             }
         }
 
@@ -521,46 +523,6 @@ fn collect_statuses(reader: &Reader) -> Vec<StatusRecord> {
             kind: format!("{:?}", status.kind()).to_lowercase(),
         })
         .collect()
-}
-
-/// Collect validation status records from crJSON document-level `validationInfo`.
-/// Replaces the deprecated per-manifest status/validationResults approach.
-fn statuses_from_crjson(value: &Value) -> Vec<StatusRecord> {
-    let mut out = Vec::new();
-    let vi = match value.get("validationInfo") {
-        Some(v) => v,
-        None => return out,
-    };
-    let kind = "success";
-    if let Some(sig) = vi.get("signature").and_then(Value::as_array) {
-        for code_value in sig {
-            if let Some(code) = code_value.as_str() {
-                out.push(StatusRecord {
-                    code: code.to_string(),
-                    url: None,
-                    explanation: None,
-                    kind: kind.to_string(),
-                });
-            }
-        }
-    }
-    if let Some(trust) = vi.get("trust").and_then(Value::as_str) {
-        out.push(StatusRecord {
-            code: trust.to_string(),
-            url: None,
-            explanation: None,
-            kind: kind.to_string(),
-        });
-    }
-    if let Some(content) = vi.get("content").and_then(Value::as_str) {
-        out.push(StatusRecord {
-            code: content.to_string(),
-            url: None,
-            explanation: None,
-            kind: kind.to_string(),
-        });
-    }
-    out
 }
 
 fn manifest_record(manifest: &Manifest) -> Result<ManifestRecord> {
