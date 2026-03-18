@@ -69,7 +69,7 @@ fn report_render_markdown_contains_expected() {
     let cli = cli_with_input_and_format(path.display().to_string(), OutputFormat::Markdown, None);
     let validator = Validator::new(cli).unwrap();
     let report = validator.run().unwrap();
-    let md = report.render_markdown();
+    let md = report.render_markdown(false);
     assert!(md.contains("# C2PA Conformance Report"));
     assert!(md.contains("Report Generation Info"));
     assert!(md.contains("crJSON"));
@@ -84,7 +84,7 @@ fn report_render_html_contains_expected() {
     let cli = cli_with_input_and_format(path.display().to_string(), OutputFormat::Html, None);
     let validator = Validator::new(cli).unwrap();
     let report = validator.run().unwrap();
-    let html = report.render_html();
+    let html = report.render_html(false);
     assert!(html.contains("<!doctype html>"));
     assert!(html.contains("C2PA Conformance Report"));
 }
