@@ -157,8 +157,8 @@ fn render_report(
             let structured_value = report_to_structured_value(report, use_profile_output);
             serde_yaml::to_string(&structured_value).context("failed to render YAML output")
         }
-        OutputFormat::Markdown => Ok(report.render_markdown()),
-        OutputFormat::Html => Ok(report.render_html()),
+        OutputFormat::Markdown => Ok(report.render_markdown(use_profile_output)),
+        OutputFormat::Html => Ok(report.render_html(use_profile_output)),
     }
 }
 
