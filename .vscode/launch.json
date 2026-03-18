@@ -64,6 +64,77 @@
         "testfiles/assets/ChatGPT_Image.png"
       ],
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate Multiple Assets",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "-o",
+        "output",
+        "testfiles/assets/PXL_20260208_202351558.jpg",
+        "testfiles/assets/ChatGPT_Image.png"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate ChatGPT Image w/GenAI Profile",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "-o",
+        "output",
+        "--profile",
+        "testfiles/profiles/fully-generative-ai_profile.yml",
+        "testfiles/assets/ChatGPT_Image.png"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate ChatGPT Image w/GenAI Profile - .md",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "-o",
+        "output",
+        "--profile",
+        "testfiles/profiles/fully-generative-ai_profile.yml",
+        "--format",
+        "markdown",
+        "testfiles/assets/ChatGPT_Image.png"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Validate ChatGPT Image w/GenAI Profile - .html",
+      "cargo": {
+        "args": ["build", "--bin", "c2pa-validate"],
+        "filter": { "name": "c2pa-validate", "kind": "bin" }
+      },
+      "args": [
+        "-o",
+        "output",
+        "--profile",
+        "testfiles/profiles/fully-generative-ai_profile.yml",
+        "--format",
+        "html",
+        "testfiles/assets/ChatGPT_Image.png"
+      ],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }
