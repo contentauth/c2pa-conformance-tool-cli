@@ -179,9 +179,13 @@ impl CrJsonReport {
         }
     }
 
-    pub fn render_markdown(&self) -> String {
+    pub fn render_markdown(&self, profile_only: bool) -> String {
         let mut output = String::new();
-        output.push_str("# C2PA Conformance Report\n\n");
+        if profile_only {
+            output.push_str("# 📝 C2PA Conformance Report\n\n");
+        } else {
+            output.push_str("# C2PA Conformance Report\n\n");
+        }
 
         let result = match self.results.first() {
             Some(r) => r,
@@ -199,10 +203,30 @@ impl CrJsonReport {
 
         match result {
             ReportItem::Asset(report) => {
-                output.push_str(&format!("**Asset:** {}\n\n", report.input.resolved_path));
-                output.push_str(&format!("**Format:** {}\n\n", report.input.detected_format));
+                if profile_only {
+                    output.push_str(&format!("**📁 Asset:** {}\n\n", report.input.resolved_path));
+                    output.push_str(&format!("**📄 Format:** {}\n\n", report.input.detected_format));
+                } else {
+                    output.push_str(&format!("**Asset:** {}\n\n", report.input.resolved_path));
+                    output.push_str(&format!("**Format:** {}\n\n", report.input.detected_format));
+                }
 
-                output.push_str("## Validation & Trust\n\n");
+                if profile_only {
+                    // Profile report: compliance and profile details at top; no Validation & Trust or Manifests.
+                    if let Some(profile_path) = &report.profile_path {
+                        output.push_str("## 📝 Profile\n\n");
+                        let comp = render_profile_compliance(report.profile_evaluation.as_ref());
+                        output.push_str(&format!(
+                            "- **Profile:** `{}`\n- **Compliance:** {}\n\n",
+                            profile_path,
+                            compliance_emoji_md(comp)
+                        ));
+                        if let Some(ref eval) = report.profile_evaluation {
+                            output.push_str(&render_profile_details_md(eval));
+                        }
+                    }
+                } else {
+                    output.push_str("## Validation & Trust\n\n");
                     output.push_str(&format!("- **Trust Status:** `{}`\n", render_state(report.validation_state)));
                     if !report.trust.notes.is_empty() {
                         for note in &report.trust.notes {
@@ -309,14 +333,15 @@ impl CrJsonReport {
                             }
                         }
                     }
+                }
 
-                    if !report.warnings.is_empty() {
-                        output.push_str("## Warnings\n\n");
-                        for w in &report.warnings {
-                            output.push_str(&format!("- {}\n", w));
-                        }
-                        output.push_str("\n");
+                if !report.warnings.is_empty() {
+                    output.push_str("## Warnings\n\n");
+                    for w in &report.warnings {
+                        output.push_str(&format!("- {}\n", w));
                     }
+                    output.push_str("\n");
+                }
             }
             ReportItem::CrJsonValidation(report) => {
                 output.push_str(&format!("**Asset:** {}\n\n", report.input.resolved_path));
@@ -346,7 +371,7 @@ impl CrJsonReport {
         output
     }
 
-    pub fn render_html(&self) -> String {
+    pub fn render_html(&self, profile_only: bool) -> String {
         let report_generation_info = format!(
             r#"<h2>Report Generation Info</h2><table class="info-table"><tbody><tr><th>Tool</th><td>{} {}</td></tr><tr><th>Generated</th><td>{}</td></tr></tbody></table>"#,
             html_escape(self.tool.name),
@@ -355,7 +380,7 @@ impl CrJsonReport {
         );
 
         let body = match self.results.first() {
-            Some(ReportItem::Asset(report)) => render_single_asset_html(report),
+            Some(ReportItem::Asset(report)) => render_single_asset_html(report, profile_only),
             Some(ReportItem::CrJsonValidation(report)) => render_single_crjson_html(report),
             None => String::new(),
         };
@@ -400,11 +425,17 @@ details.manifest-details[open] summary.manifest-summary::before { content: "▼ 
 .status-emoji { font-style: normal; }
 .warnings-list { margin: 0.35rem 0; }
 .warnings-list li { margin: 0.25rem 0; }
+.row-emoji { margin-right: 0.15rem; font-style: normal; }
 "#;
 
+        let h1 = if profile_only {
+            "📝 C2PA Conformance Report"
+        } else {
+            "C2PA Conformance Report"
+        };
         format!(
-            r#"<!doctype html><html><head><meta charset="utf-8"><title>C2PA Conformance Report</title><style>{}</style></head><body><h1>C2PA Conformance Report</h1><div class="report-body">{}{}</div></body></html>"#,
-            STYLES, body, report_generation_info
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>C2PA Conformance Report</title><style>{}</style></head><body><h1>{}</h1><div class="report-body">{}{}</div></body></html>"#,
+            STYLES, h1, body, report_generation_info
         )
     }
 }
@@ -474,67 +505,264 @@ fn render_profile_compliance(profile_evaluation: Option<&serde_json::Value>) -> 
     }
 }
 
-fn render_single_asset_html(report: &AssetReport) -> String {
-    let state_class = match report.validation_state {
-        ValidationState::Trusted => "trusted",
-        ValidationState::Valid => "valid",
-        ValidationState::Invalid => "invalid",
-    };
-    let mut out = format!(
-        r#"<p class="report-asset"><strong>Asset:</strong> {}</p><p class="report-format"><strong>Format:</strong> {}</p><h2>Validation &amp; Trust</h2><p class="trust-status"><strong>Trust Status:</strong> <span class="badge badge-{}">{}</span></p><table class="info-table"><tbody>"#,
-        html_escape(&report.input.resolved_path),
-        html_escape(&report.input.detected_format),
-        state_class,
-        render_state(report.validation_state)
-    );
-    if !report.trust.notes.is_empty() {
-        out.push_str(&format!(
-            "<tr><th>Notes</th><td><ul style=\"margin:0;padding-left:1.25rem;\">{}</ul></td></tr>",
-            report
-                .trust
-                .notes
-                .iter()
-                .map(|n| format!("<li>{}</li>", html_escape(n)))
-                .collect::<String>()
-        ));
+/// Professional one-line compliance for markdown (emoji + text).
+fn compliance_emoji_md(comp: &str) -> String {
+    match comp {
+        "pass" => "**✅ pass**".to_string(),
+        "fail" => "**❌ fail**".to_string(),
+        _ => format!("**⚪ {}**", comp),
     }
-    let (claim_sig, signing_cert, timestamp) = partition_validation_statuses(&report.statuses);
-    if !claim_sig.is_empty() {
-        out.push_str(&format!(
-            r#"<tr><th>Claim signature</th><td>{}</td></tr>"#,
-            html_escape(&format_status_list(claim_sig))
-        ));
-    }
-    if !signing_cert.is_empty() {
-        out.push_str(&format!(
-            r#"<tr><th>Signing certificate</th><td>{}</td></tr>"#,
-            html_escape(&format_status_list(signing_cert))
-        ));
-    }
-    if !timestamp.is_empty() {
-        out.push_str(&format!(
-            r#"<tr><th>Timestamp</th><td>{}</td></tr>"#,
-            html_escape(&format_status_list(timestamp))
-        ));
-    }
-    out.push_str("</tbody></table>");
+}
 
-    if let Some(profile_path) = &report.profile_path {
-        let badge_class = match profile_compliance_value(report.profile_evaluation.as_ref()) {
-            Some(true) => "pass",
-            Some(false) => "fail",
-            None => "unknown",
+/// Emoji prefix for profile statement section titles (subtle categorization).
+fn profile_section_emoji(title: &str) -> &'static str {
+    match title {
+        t if t.contains("Content") && t.contains("Information") => "📄 ",
+        t if t.contains("Manifest") => "📦 ",
+        t if t.contains("Action") => "⚙️ ",
+        t if t.eq_ignore_ascii_case("Compliance") => "📊 ",
+        _ => "▪️ ",
+    }
+}
+
+/// Renders profile_metadata and statements from profile evaluation JSON as markdown.
+fn render_profile_details_md(eval: &serde_json::Value) -> String {
+    let mut out = String::new();
+    if let Some(meta) = eval.get("profile_metadata") {
+        out.push_str("### ℹ️ Profile metadata\n\n");
+        for key in ["name", "issuer", "date", "version", "language"] {
+            if let Some(v) = meta.get(key).and_then(serde_json::Value::as_str) {
+                out.push_str(&format!("- **{}:** {}\n", key, v));
+            }
+        }
+        out.push_str("\n");
+    }
+    if let Some(sections) = eval.get("statements").and_then(serde_json::Value::as_array) {
+        for section in sections {
+            let items = match section.as_array() {
+                Some(a) => a,
+                None => continue,
+            };
+            let section_title = items
+                .iter()
+                .find(|o| o.get("title").is_some())
+                .and_then(|o| o.get("title").and_then(serde_json::Value::as_str));
+            if let Some(title) = section_title {
+                out.push_str(&format!(
+                    "### {}{}\n\n",
+                    profile_section_emoji(title),
+                    title
+                ));
+            }
+            for item in items {
+                if item.get("title").is_some() && item.get("report_text").is_some() && item.get("value").is_none() {
+                    if let Some(t) = item.get("report_text").and_then(serde_json::Value::as_str) {
+                        out.push_str(&format!("{}\n\n", t));
+                    }
+                    continue;
+                }
+                if let Some(report_text) = item.get("report_text").and_then(serde_json::Value::as_str) {
+                    let value_str = item.get("value").map(|v| match v {
+                        serde_json::Value::Bool(b) => format!("{}", b),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::String(s) => s.clone(),
+                        _ => format!("{}", v),
+                    });
+                    if let Some(v) = value_str {
+                        let id = item.get("id").and_then(serde_json::Value::as_str).unwrap_or("");
+                        let row_emoji = match item.get("value") {
+                            Some(serde_json::Value::Bool(true)) => "✅ ",
+                            Some(serde_json::Value::Bool(false)) => "❌ ",
+                            _ => "▪️ ",
+                        };
+                        if id.is_empty() {
+                            out.push_str(&format!("- {}`{}` — {}\n", row_emoji, v, report_text));
+                        } else {
+                            out.push_str(&format!(
+                                "- {}**{}:** `{}` — {}\n",
+                                row_emoji, id, v, report_text
+                            ));
+                        }
+                    } else {
+                        out.push_str(&format!("- {}\n", report_text));
+                    }
+                }
+            }
+            out.push_str("\n");
+        }
+    }
+    out
+}
+
+fn compliance_label_emoji(comp: &str) -> String {
+    match comp {
+        "pass" => "✅ pass".to_string(),
+        "fail" => "❌ fail".to_string(),
+        _ => format!("⚪ {}", comp),
+    }
+}
+
+/// Renders profile_metadata and statements from profile evaluation JSON as HTML.
+fn render_profile_details_html(eval: &serde_json::Value) -> String {
+    let mut out = String::new();
+    if let Some(meta) = eval.get("profile_metadata") {
+        out.push_str("<h3>ℹ️ Profile metadata</h3><table class=\"info-table\"><tbody>");
+        for key in ["name", "issuer", "date", "version", "language"] {
+            if let Some(v) = meta.get(key).and_then(serde_json::Value::as_str) {
+                out.push_str(&format!(
+                    "<tr><th>{}</th><td>{}</td></tr>",
+                    html_escape(key),
+                    html_escape(v)
+                ));
+            }
+        }
+        out.push_str("</tbody></table>");
+    }
+    if let Some(sections) = eval.get("statements").and_then(serde_json::Value::as_array) {
+        for section in sections {
+            let items = match section.as_array() {
+                Some(a) => a,
+                None => continue,
+            };
+            let section_title = items
+                .iter()
+                .find(|o| o.get("title").is_some())
+                .and_then(|o| o.get("title").and_then(serde_json::Value::as_str));
+            if let Some(title) = section_title {
+                out.push_str(&format!(
+                    "<h3>{}{}</h3>",
+                    profile_section_emoji(title),
+                    html_escape(title)
+                ));
+            }
+            out.push_str("<table class=\"info-table\"><tbody>");
+            for item in items {
+                if item.get("title").is_some() && item.get("report_text").is_some() && item.get("value").is_none() {
+                    if let Some(t) = item.get("report_text").and_then(serde_json::Value::as_str) {
+                        out.push_str(&format!("<tr><td colspan=\"2\">{}</td></tr>", html_escape(t)));
+                    }
+                    continue;
+                }
+                if let Some(report_text) = item.get("report_text").and_then(serde_json::Value::as_str) {
+                    let id = item.get("id").and_then(serde_json::Value::as_str).unwrap_or("");
+                    let value_cell = item.get("value").map(|v| match v {
+                        serde_json::Value::Bool(b) => format!(
+                            r#"<span class="row-emoji" aria-hidden="true">{}</span> <span class="badge badge-{}">{}</span>"#,
+                            if *b { "✅" } else { "❌" },
+                            if *b { "pass" } else { "fail" },
+                            b
+                        ),
+                        serde_json::Value::Number(n) => html_escape(&n.to_string()),
+                        serde_json::Value::String(s) => html_escape(s),
+                        _ => html_escape(&v.to_string()),
+                    }).unwrap_or_else(|| "—".to_string());
+                    out.push_str(&format!(
+                        "<tr><th>{}</th><td>{} — {}</td></tr>",
+                        html_escape(id),
+                        value_cell,
+                        html_escape(report_text)
+                    ));
+                }
+            }
+            out.push_str("</tbody></table>");
+        }
+    }
+    out
+}
+
+fn render_single_asset_html(report: &AssetReport, profile_only: bool) -> String {
+    let mut out = if profile_only {
+        format!(
+            r#"<p class="report-asset"><strong>📁 Asset:</strong> {}</p><p class="report-format"><strong>📄 Format:</strong> {}</p>"#,
+            html_escape(&report.input.resolved_path),
+            html_escape(&report.input.detected_format)
+        )
+    } else {
+        format!(
+            r#"<p class="report-asset"><strong>Asset:</strong> {}</p><p class="report-format"><strong>Format:</strong> {}</p>"#,
+            html_escape(&report.input.resolved_path),
+            html_escape(&report.input.detected_format)
+        )
+    };
+
+    if profile_only {
+        // Profile report: Profile (path, compliance, details) at top; no Validation & Trust or Manifests.
+        if let Some(profile_path) = &report.profile_path {
+            let badge_class = match profile_compliance_value(report.profile_evaluation.as_ref()) {
+                Some(true) => "pass",
+                Some(false) => "fail",
+                None => "unknown",
+            };
+            let comp = render_profile_compliance(report.profile_evaluation.as_ref());
+            out.push_str(&format!(
+                r#"<h2>📝 Profile</h2><table class="info-table"><tbody><tr><th>Profile</th><td>{}</td></tr><tr><th>Compliance</th><td><span class="badge badge-{}">{}</span></td></tr></tbody></table>"#,
+                html_escape(profile_path),
+                badge_class,
+                html_escape(&compliance_label_emoji(comp))
+            ));
+            if let Some(ref eval) = report.profile_evaluation {
+                out.push_str(&render_profile_details_html(eval));
+            }
+        }
+    } else {
+        let state_class = match report.validation_state {
+            ValidationState::Trusted => "trusted",
+            ValidationState::Valid => "valid",
+            ValidationState::Invalid => "invalid",
         };
         out.push_str(&format!(
-            r#"<h2>Profile</h2><table class="info-table"><tbody><tr><th>Path</th><td>{}</td></tr><tr><th>Compliance</th><td><span class="badge badge-{}">{}</span></td></tr></tbody></table>"#,
-            html_escape(profile_path),
-            badge_class,
-            render_profile_compliance(report.profile_evaluation.as_ref())
+            r#"<h2>Validation &amp; Trust</h2><p class="trust-status"><strong>Trust Status:</strong> <span class="badge badge-{}">{}</span></p><table class="info-table"><tbody>"#,
+            state_class,
+            render_state(report.validation_state)
         ));
-    }
+        if !report.trust.notes.is_empty() {
+            out.push_str(&format!(
+                "<tr><th>Notes</th><td><ul style=\"margin:0;padding-left:1.25rem;\">{}</ul></td></tr>",
+                report
+                    .trust
+                    .notes
+                    .iter()
+                    .map(|n| format!("<li>{}</li>", html_escape(n)))
+                    .collect::<String>()
+            ));
+        }
+        let (claim_sig, signing_cert, timestamp) = partition_validation_statuses(&report.statuses);
+        if !claim_sig.is_empty() {
+            out.push_str(&format!(
+                r#"<tr><th>Claim signature</th><td>{}</td></tr>"#,
+                html_escape(&format_status_list(claim_sig))
+            ));
+        }
+        if !signing_cert.is_empty() {
+            out.push_str(&format!(
+                r#"<tr><th>Signing certificate</th><td>{}</td></tr>"#,
+                html_escape(&format_status_list(signing_cert))
+            ));
+        }
+        if !timestamp.is_empty() {
+            out.push_str(&format!(
+                r#"<tr><th>Timestamp</th><td>{}</td></tr>"#,
+                html_escape(&format_status_list(timestamp))
+            ));
+        }
+        out.push_str("</tbody></table>");
 
-    if !report.manifests.is_empty() {
-        out.push_str("<h2>Manifests</h2>");
+        if let Some(profile_path) = &report.profile_path {
+            let badge_class = match profile_compliance_value(report.profile_evaluation.as_ref()) {
+                Some(true) => "pass",
+                Some(false) => "fail",
+                None => "unknown",
+            };
+            out.push_str(&format!(
+                r#"<h2>Profile</h2><table class="info-table"><tbody><tr><th>Path</th><td>{}</td></tr><tr><th>Compliance</th><td><span class="badge badge-{}">{}</span></td></tr></tbody></table>"#,
+                html_escape(profile_path),
+                badge_class,
+                render_profile_compliance(report.profile_evaluation.as_ref())
+            ));
+        }
+
+        if !report.manifests.is_empty() {
+            out.push_str("<h2>Manifests</h2>");
         for (i, manifest) in report.manifests.iter().enumerate() {
             let heading = manifest
                 .title
@@ -609,6 +837,7 @@ fn render_single_asset_html(report: &AssetReport) -> String {
                 out.push_str("</tbody></table>");
             }
             out.push_str("</div></details>");
+        }
         }
     }
 
@@ -769,7 +998,7 @@ mod tests {
                 messages: vec!["ok".to_string()],
             })],
         };
-        let md = report.render_markdown();
+        let md = report.render_markdown(false);
         assert!(md.starts_with("# C2PA Conformance Report"));
         assert!(md.contains("## Validation"));
         assert!(md.contains("**Result:** `pass`"));
@@ -798,7 +1027,7 @@ mod tests {
                 messages: vec![],
             })],
         };
-        let html = report.render_html();
+        let html = report.render_html(false);
         assert!(html.contains("<!doctype html>"));
         assert!(html.contains("<h1>C2PA Conformance Report</h1>"));
         assert!(
